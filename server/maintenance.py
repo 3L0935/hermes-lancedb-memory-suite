@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import fcntl
+import json
 import os
 from pathlib import Path
 import shutil
@@ -14,6 +15,13 @@ from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
 MAINTENANCE_TABLES = (
     "memories",
     "memory_edges",
@@ -22,15 +30,53 @@ MAINTENANCE_TABLES = (
 )
 COMPACTION_BACKUP_PREFIX = "lancedb-pre-compact-"
 COMPACTION_BACKUPS_TO_KEEP = 2
+COMPACTION_COOLDOWN = timedelta(seconds=_positive_int_env(
+    "LANCEDB_MAINTENANCE_COOLDOWN_SECONDS", 60 * 60
+))
+ROUTINE_HISTORY_RETENTION = timedelta(seconds=_positive_int_env(
+    "LANCEDB_ROUTINE_RETENTION_SECONDS", 24 * 60 * 60
+))
 MAINTENANCE_MAX_VERSIONS = 64
 MAINTENANCE_MAX_FRAGMENTS = 64
 MAINTENANCE_MAX_ORPHAN_INDEX_DIRECTORIES = 4
+MAINTENANCE_MIN_RECLAIMABLE_BYTES = _positive_int_env(
+    "LANCEDB_MAINTENANCE_MIN_RECLAIMABLE_BYTES", 16 * 1024 * 1024
+)
+MAINTENANCE_MIN_STORAGE_RATIO = _positive_int_env(
+    "LANCEDB_MAINTENANCE_MIN_STORAGE_RATIO", 4
+)
+MAINTENANCE_STATE_FILE = ".lancedb-maintenance-state.json"
 
 
 def maintenance_lock_path(db_path: Path) -> Path:
     """Return the lock shared with `LanceDBStore.write_batch()`."""
     db_path = Path(db_path).resolve()
     return db_path / ".write.lock"
+
+
+def maintenance_state_path(backups_path: Path) -> Path:
+    """Keep maintenance accounting outside the measured database directory."""
+    return Path(backups_path) / MAINTENANCE_STATE_FILE
+
+
+def _read_maintenance_state(backups_path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(maintenance_state_path(backups_path).read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_maintenance_state(backups_path: Path, value: dict[str, Any]) -> None:
+    path = maintenance_state_path(backups_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid4().hex}")
+    try:
+        temporary.write_text(json.dumps(value, sort_keys=True) + "\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _value(item: Any, key: str) -> Any:
@@ -234,9 +280,12 @@ def compaction_plan(
     *,
     estimated_after_bytes: int,
     diagnostics: dict[str, Any] | None = None,
+    mode: str = "routine",
     now: Callable[[], datetime] = datetime.now,
 ) -> dict[str, Any]:
     """Describe the exact next backup and retention action without writing."""
+    if mode not in {"routine", "reclaim"}:
+        raise ValueError("mode must be routine or reclaim")
     db_path = Path(db_path)
     backups_path = Path(backups_path)
     backup_to_create = _timestamped_backup_path(backups_path, now)
@@ -244,6 +293,7 @@ def compaction_plan(
     delete_count = max(0, len(existing) + 1 - COMPACTION_BACKUPS_TO_KEEP)
     trigger_reasons = []
     diagnostics = diagnostics or {}
+    state = _read_maintenance_state(backups_path)
     for name, table in (diagnostics.get("tables") or {}).items():
         versions = table.get("versions") if isinstance(table, dict) else None
         fragments = table.get("fragments") if isinstance(table, dict) else None
@@ -267,20 +317,65 @@ def compaction_plan(
             "memories.orphan_index_directories="
             f"{int(orphan_directories)}>{MAINTENANCE_MAX_ORPHAN_INDEX_DIRECTORIES}"
         )
+    database_bytes = directory_size(db_path)
+    estimated_after = max(0, int(estimated_after_bytes))
+    reclaimable_bytes = max(0, database_bytes - estimated_after)
+    if (
+        reclaimable_bytes >= MAINTENANCE_MIN_RECLAIMABLE_BYTES
+        and database_bytes >= MAINTENANCE_MIN_STORAGE_RATIO * max(1, estimated_after)
+    ):
+        trigger_reasons.append(
+            "storage.reclaimable_bytes="
+            f"{reclaimable_bytes}>={MAINTENANCE_MIN_RECLAIMABLE_BYTES}"
+        )
+
+    current_versions = {
+        name: int(table["current_version"])
+        for name, table in (diagnostics.get("tables") or {}).items()
+        if isinstance(table, dict) and table.get("current_version") is not None
+    }
+    deferred_reason = None
+    recommended = bool(trigger_reasons)
+    if recommended and current_versions and state.get("table_versions") == current_versions:
+        recommended = False
+        deferred_reason = "unchanged_since_last_success"
+    last_success_at = state.get("last_success_at")
+    if recommended and isinstance(last_success_at, str):
+        try:
+            if now() - datetime.fromisoformat(last_success_at) < COMPACTION_COOLDOWN:
+                recommended = False
+                deferred_reason = "cooldown"
+        except ValueError:
+            pass
+
+    managed_backup_bytes = sum(directory_size(path) for path in existing)
     return {
         "manual": True,
-        "recommended": bool(trigger_reasons),
+        "mode": mode,
+        "recommended": recommended,
+        "deferred_reason": deferred_reason,
         "trigger_reasons": trigger_reasons,
         "thresholds": {
             "max_versions": MAINTENANCE_MAX_VERSIONS,
             "max_fragments": MAINTENANCE_MAX_FRAGMENTS,
             "max_orphan_index_directories": MAINTENANCE_MAX_ORPHAN_INDEX_DIRECTORIES,
+            "min_reclaimable_bytes": MAINTENANCE_MIN_RECLAIMABLE_BYTES,
+            "min_storage_ratio": MAINTENANCE_MIN_STORAGE_RATIO,
+            "cooldown_seconds": int(COMPACTION_COOLDOWN.total_seconds()),
         },
-        "size_before_bytes": directory_size(db_path),
-        "estimated_after_bytes": max(0, int(estimated_after_bytes)),
+        "history_retention_seconds": (
+            int(ROUTINE_HISTORY_RETENTION.total_seconds()) if mode == "routine" else 0
+        ),
+        "size_before_bytes": database_bytes,
+        "database_bytes": database_bytes,
+        "managed_backup_bytes": managed_backup_bytes,
+        "total_footprint_bytes": database_bytes + managed_backup_bytes,
+        "reclaimable_bytes_estimate": reclaimable_bytes,
+        "estimated_after_bytes": estimated_after,
         "backup_to_create": str(backup_to_create),
         "backups_to_delete": [str(path) for path in existing[:delete_count]],
         "retained_backup_count": COMPACTION_BACKUPS_TO_KEEP,
+        "last_maintenance": state or None,
         "concurrency_warning": (
             "Cooperating LanceDBStore writers share an advisory lock with compaction; "
             "pause any raw external writer that does not use the store batch API."
@@ -302,12 +397,15 @@ def compact_lancedb(
     db_path: Path,
     backups_path: Path,
     *,
+    mode: str = "routine",
     disk_usage: Callable[[str | os.PathLike[str]], Any] = shutil.disk_usage,
     connect: Callable[[str], Any] | None = None,
     now: Callable[[], datetime] = datetime.now,
 ) -> dict[str, Any]:
     """Acquire the writer lock, then run backup-first compaction."""
     started = time.perf_counter()
+    if mode not in {"routine", "reclaim"}:
+        return _failure("preflight", "mode must be routine or reclaim", started)
     resolved_db_path = Path(db_path).resolve()
     if not resolved_db_path.is_dir():
         return _failure(
@@ -334,6 +432,7 @@ def compact_lancedb(
         return _compact_lancedb_locked(
             resolved_db_path,
             backups_path,
+            mode=mode,
             disk_usage=disk_usage,
             connect=connect,
             now=now,
@@ -348,12 +447,13 @@ def _compact_lancedb_locked(
     db_path: Path,
     backups_path: Path,
     *,
+    mode: str = "routine",
     disk_usage: Callable[[str | os.PathLike[str]], Any] = shutil.disk_usage,
     connect: Callable[[str], Any] | None = None,
     now: Callable[[], datetime] = datetime.now,
     started: float | None = None,
 ) -> dict[str, Any]:
-    """Back up, retain two managed backups, compact, then verify every table."""
+    """Back up, verify, compact with explicit retention, then verify tables."""
     if started is None:
         started = time.perf_counter()
     db_path = Path(db_path).resolve()
@@ -368,20 +468,59 @@ def _compact_lancedb_locked(
         return _failure("preflight", "backup directory must be outside the database", started)
 
     size_before = directory_size(db_path)
-    usage_path = backups_path if backups_path.exists() else backups_path.parent
+    backup_usage_path = backups_path if backups_path.exists() else backups_path.parent
     try:
-        free_bytes = int(disk_usage(usage_path).free)
+        backup_free_bytes = int(disk_usage(backup_usage_path).free)
+        database_free_bytes = int(disk_usage(db_path).free)
+        same_filesystem = os.stat(backup_usage_path).st_dev == os.stat(db_path).st_dev
     except Exception as error:
         return _failure("disk_space", f"disk-space check failed: {error}", started)
-    if free_bytes < size_before:
+    required_backup_bytes = size_before
+    required_scratch_bytes = size_before
+    if same_filesystem:
+        required_combined_bytes = required_backup_bytes + required_scratch_bytes
+        enough_space = backup_free_bytes >= required_combined_bytes
+    else:
+        required_combined_bytes = None
+        enough_space = (
+            backup_free_bytes >= required_backup_bytes
+            and database_free_bytes >= required_scratch_bytes
+        )
+    if not enough_space:
         return _failure(
             "disk_space",
-            f"insufficient disk space: need {size_before} bytes, have {free_bytes}",
+            "insufficient disk space for backup plus compaction scratch",
             started,
             size_before_bytes=size_before,
-            free_bytes=free_bytes,
-            required_backup_bytes=size_before,
+            same_filesystem=same_filesystem,
+            backup_free_bytes=backup_free_bytes,
+            database_free_bytes=database_free_bytes,
+            required_combined_bytes=required_combined_bytes,
+            required_backup_bytes=required_backup_bytes,
+            required_scratch_bytes=required_scratch_bytes,
         )
+
+    if connect is None:
+        import lancedb
+        connect = lancedb.connect
+    try:
+        database = connect(str(db_path))
+        available = set(database.list_tables().tables)
+        missing = [name for name in MAINTENANCE_TABLES if name not in available]
+        if missing:
+            return _failure(
+                "table_precheck", f"required tables are missing: {', '.join(missing)}", started
+            )
+        tables = {name: database.open_table(name) for name in MAINTENANCE_TABLES}
+        rows = {name: {"before": int(table.count_rows())} for name, table in tables.items()}
+        samples = {}
+        for name, table in tables.items():
+            columns = [column for column in ("id", "content") if column in table.schema.names]
+            samples[name] = (
+                table.search().select(columns).limit(3).to_list() if columns else []
+            )
+    except Exception as error:
+        return _failure("table_precheck", f"table precheck failed: {error}", started)
 
     backup_created = _timestamped_backup_path(backups_path, now)
     temp_backup = backups_path / f".{backup_created.name}.tmp-{uuid4().hex}"
@@ -396,6 +535,27 @@ def _compact_lancedb_locked(
             shutil.rmtree(temp_backup)
         return _failure("backup", f"backup failed: {error}", started)
 
+    try:
+        backup_database = connect(str(backup_created))
+        backup_available = set(backup_database.list_tables().tables)
+        for name in MAINTENANCE_TABLES:
+            if name not in backup_available:
+                raise ValueError(f"required table missing from backup: {name}")
+            backup_table = backup_database.open_table(name)
+            if int(backup_table.count_rows()) != rows[name]["before"]:
+                raise ValueError(f"row count mismatch in backup table: {name}")
+            columns = [column for column in ("id", "content") if column in backup_table.schema.names]
+            backup_sample = (
+                backup_table.search().select(columns).limit(3).to_list() if columns else []
+            )
+            if backup_sample != samples[name]:
+                raise ValueError(f"key content mismatch in backup table: {name}")
+    except Exception as error:
+        return _failure(
+            "backup_verify", f"backup verification failed: {error}", started,
+            backup_created=str(backup_created), backups_deleted=[],
+        )
+
     backups_deleted = []
     try:
         candidates = _compaction_backups(backups_path)
@@ -408,33 +568,13 @@ def _compact_lancedb_locked(
             backup_created=str(backup_created), backups_deleted=backups_deleted,
         )
 
-    if connect is None:
-        import lancedb
-        connect = lancedb.connect
-    try:
-        database = connect(str(db_path))
-        available = set(database.list_tables().tables)
-        missing = [name for name in MAINTENANCE_TABLES if name not in available]
-        if missing:
-            return _failure(
-                "table_precheck", f"required tables are missing: {', '.join(missing)}", started,
-                backup_created=str(backup_created), backups_deleted=backups_deleted,
-            )
-        tables = {name: database.open_table(name) for name in MAINTENANCE_TABLES}
-        rows = {
-            name: {"before": int(table.count_rows())}
-            for name, table in tables.items()
-        }
-    except Exception as error:
-        return _failure(
-            "table_precheck", f"table precheck failed: {error}", started,
-            backup_created=str(backup_created), backups_deleted=backups_deleted,
-        )
-
     compacted_tables = []
+    cleanup_older_than = (
+        ROUTINE_HISTORY_RETENTION if mode == "routine" else timedelta(seconds=0)
+    )
     for name in MAINTENANCE_TABLES:
         try:
-            tables[name].optimize(cleanup_older_than=timedelta(seconds=0))
+            tables[name].optimize(cleanup_older_than=cleanup_older_than)
             compacted_tables.append(name)
         except Exception as error:
             return _failure(
@@ -443,35 +583,9 @@ def _compact_lancedb_locked(
                 compacted_tables=compacted_tables, rows=rows,
             )
 
-    orphan_index_directories_removed: dict[str, int | None] = {}
-    for name in MAINTENANCE_TABLES:
-        try:
-            table = database.open_table(name)
-            orphan_uuids = _orphan_index_uuids(db_path, name, table)
-            if orphan_uuids is None:
-                orphan_index_directories_removed[name] = None
-                continue
-            index_root = (db_path / f"{name}.lance" / "_indices").resolve()
-            removed = 0
-            for orphan_uuid in sorted(orphan_uuids):
-                target = (index_root / orphan_uuid).resolve()
-                if target.parent != index_root:
-                    raise ValueError(f"unsafe index cleanup target: {target}")
-                if target.is_dir():
-                    shutil.rmtree(target)
-                    removed += 1
-            orphan_index_directories_removed[name] = removed
-        except Exception as error:
-            return _failure(
-                f"cleanup_indices.{name}",
-                f"orphan index cleanup failed for {name}: {error}",
-                started,
-                backup_created=str(backup_created),
-                backups_deleted=backups_deleted,
-                compacted_tables=compacted_tables,
-                orphan_index_directories_removed=orphan_index_directories_removed,
-                rows=rows,
-            )
+    # A directory absent from the current version can still belong to a retained
+    # or tagged snapshot. Lance owns reachability; manual deletion is unsafe.
+    orphan_index_directories_removed = {name: None for name in MAINTENANCE_TABLES}
 
     fts_unindexed = None
     for name in MAINTENANCE_TABLES:
@@ -488,14 +602,12 @@ def _compact_lancedb_locked(
             if active_uuids is not None:
                 physical_uuids = _physical_index_uuids(db_path, name)
                 missing_active = active_uuids - physical_uuids
-                remaining_orphans = physical_uuids - active_uuids
-                if missing_active or remaining_orphans:
+                if missing_active:
                     return _failure(
                         f"verify.{name}.indices",
                         (
                             f"index directory verification failed for {name}: "
-                            f"missing_active={sorted(missing_active)}, "
-                            f"remaining_orphans={sorted(remaining_orphans)}"
+                            f"missing_active={sorted(missing_active)}"
                         ),
                         started,
                         backup_created=str(backup_created),
@@ -536,16 +648,46 @@ def _compact_lancedb_locked(
                 compacted_tables=compacted_tables, rows=rows,
             )
 
+    size_after = directory_size(db_path)
+    completed_at = now()
+    state = {
+        "last_success_at": completed_at.isoformat(),
+        "mode": mode,
+        "history_retention_seconds": int(cleanup_older_than.total_seconds()),
+        "table_versions": {name: int(rows[name]["version"]) for name in MAINTENANCE_TABLES},
+        "database_bytes_before": size_before,
+        "database_bytes_after": size_after,
+        "actual_reclaimed_bytes": max(0, size_before - size_after),
+        "backup_created_bytes": directory_size(backup_created),
+    }
+    try:
+        _write_maintenance_state(backups_path, state)
+    except Exception as error:
+        return _failure(
+            "maintenance_state", f"maintenance state write failed: {error}", started,
+            backup_created=str(backup_created), backups_deleted=backups_deleted,
+            compacted_tables=compacted_tables, rows=rows,
+        )
+    managed_backup_bytes = sum(
+        directory_size(path) for path in _compaction_backups(backups_path)
+    )
     return {
         "success": True,
+        "mode": mode,
+        "history_retention_seconds": int(cleanup_older_than.total_seconds()),
         "size_before_bytes": size_before,
-        "size_after_bytes": directory_size(db_path),
+        "size_after_bytes": size_after,
+        "actual_reclaimed_bytes": max(0, size_before - size_after),
+        "managed_backup_bytes": managed_backup_bytes,
+        "total_footprint_bytes": size_after + managed_backup_bytes,
+        "completed_at": completed_at.isoformat(),
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
         "backup_created": str(backup_created),
         "backups_deleted": backups_deleted,
         "rows": rows,
         "compacted_tables": compacted_tables,
         "orphan_index_directories_removed": orphan_index_directories_removed,
+        "manual_index_cleanup": "skipped_unproven_snapshot_reachability",
         "fts_num_unindexed_rows": fts_unindexed,
         "manual_concurrency_limit": (
             "Cooperating store writers are locked; pause raw external writers."
@@ -569,6 +711,7 @@ def collect_health_diagnostics(
     db_path: Path,
     database,
     *,
+    backups_path: Path | None = None,
     pipeline: dict[str, Any],
     ollama_probe: Callable[[], dict[str, Any]],
     table_names: Iterable[str] = MAINTENANCE_TABLES,
@@ -641,12 +784,23 @@ def collect_health_diagnostics(
 
     disk_bytes = directory_size(db_path)
     history_bytes = max(0, disk_bytes - useful_bytes)
+    backups_path = Path(backups_path) if backups_path is not None else db_path.parent / "backups"
+    managed_backup_bytes = sum(
+        directory_size(path) for path in _compaction_backups(backups_path)
+    )
+    maintenance_state = _read_maintenance_state(backups_path)
     ollama = ollama_probe()
     return {
         "read_only": True,
         "tables": tables,
         "fts": fts,
         "storage": {
+            "database_bytes": disk_bytes,
+            "managed_backup_bytes": managed_backup_bytes,
+            "total_footprint_bytes": disk_bytes + managed_backup_bytes,
+            "active_bytes_estimate": useful_bytes,
+            "reclaimable_bytes_estimate": history_bytes,
+            "estimate_only": True,
             "disk_bytes": disk_bytes,
             "useful_bytes": useful_bytes,
             "history_bytes": history_bytes,
@@ -660,5 +814,6 @@ def collect_health_diagnostics(
             "estimated_reclaimable_bytes": history_bytes,
             "estimate_only": True,
         },
+        "last_maintenance": maintenance_state or None,
         "budgets": {"tables": len(selected)},
     }

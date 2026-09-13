@@ -44,7 +44,7 @@ class CompactIfNeededTests(unittest.TestCase):
         self.assertEqual("compacted", report["action"])
         self.assertEqual(
             (("http://127.0.0.1:7777/api/maintenance/compact",), {
-                "data": {"confirmed": True},
+                "data": {"confirmed": True, "mode": "routine"},
                 "timeout": 30.0,
             }),
             request.call_args_list[1],

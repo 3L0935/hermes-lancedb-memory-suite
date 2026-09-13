@@ -417,31 +417,46 @@ boundary and the inter-process writer lock. LanceDB 0.34.0 searches unindexed
 fragments during an active batch, and the regression suite verifies recall both
 before and after the refresh.
 
-The plan is read-only and reports whether fixed bounds are exceeded: 64 table
-versions, 64 fragments, or 4 abandoned index directories. The deployed
-`lancedb-viz-maintenance.timer` checks it hourly and invokes the confirmed route
-only when `recommended` is true. The same route remains available manually:
+The read-only health response separates database bytes, managed backup bytes,
+their total footprint, estimated active bytes, and estimated reclaimable bytes.
+It also reports retained version count separately from the cumulative current
+version. The plan recommends maintenance above 64 retained versions, 64
+fragments, or 4 unreferenced current-version index directories. It also uses a
+byte trigger when estimated reclaimable space reaches 16 MiB and the database is
+at least four times the estimated active storage.
+
+The starting values can be changed with
+`LANCEDB_MAINTENANCE_MIN_RECLAIMABLE_BYTES`,
+`LANCEDB_MAINTENANCE_MIN_STORAGE_RATIO`,
+`LANCEDB_MAINTENANCE_COOLDOWN_SECONDS`, and
+`LANCEDB_ROUTINE_RETENTION_SECONDS`.
+
+`lancedb-viz-maintenance.timer` checks hourly. Routine maintenance keeps 24 hours
+of history and observes a one-hour cooldown; an unchanged table-version snapshot
+does not create another backup. Zero-age cleanup is reserved for an explicit
+reclaim after old readers have drained:
 
 ```bash
-curl -fsS http://127.0.0.1:7777/api/maintenance/compact/plan \
+curl -fsS 'http://127.0.0.1:7777/api/maintenance/compact/plan?mode=reclaim' \
   | python3 -m json.tool
 curl -fsS -X POST \
   -H 'Content-Type: application/json' \
-  --data '{"confirmed":true}' \
+  --data '{"confirmed":true,"mode":"reclaim"}' \
   http://127.0.0.1:7777/api/maintenance/compact \
   | python3 -m json.tool
 ```
 
-Apply creates an atomic `lancedb-pre-compact-*` backup before touching any
-table, retains the two newest managed backups, compacts all four tables, removes
-only index UUID directories absent from current Lance metadata, and verifies
-row counts, readable versions, active index directories, and the memories FTS
-index. If the engine cannot expose active UUIDs, cleanup is skipped and reported
-as `None`; no directory is guessed. A failed response includes `failed_step`;
-once backup creation succeeded it also includes `backup_created`, which remains
-available for recovery. There is no automatic restore. Cooperating store
-writers share an advisory lock with maintenance; pause any raw writer that does
-not use `store.write_batch()`.
+Apply budgets space for the complete backup and compaction scratch, creates an
+atomic `lancedb-pre-compact-*` copy, verifies its tables, row counts, IDs and
+sample content, then rotates older managed backups. It retains the two newest
+verified recovery copies. Compaction verifies row counts, readable versions,
+active index directories and the memories FTS index. Manual index-directory
+deletion is skipped because a directory absent from the current version can be
+needed by a retained or tagged snapshot. A failed response includes
+`failed_step`; once backup creation succeeds it also includes `backup_created`,
+which remains available for recovery. Cooperating store writers share an
+advisory lock with maintenance; pause any raw writer that does not use
+`store.write_batch()`.
 
 ## Scripts
 

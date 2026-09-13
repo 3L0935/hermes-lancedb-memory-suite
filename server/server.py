@@ -1419,6 +1419,7 @@ def api_get_health() -> dict:
         return collect_health_diagnostics(
             Path(getattr(store, "_path", LANCEDB_PATH)),
             store._db,
+            backups_path=HERMES_HOME / "backups",
             pipeline={
                 "model": model,
                 "dimension": 768,
@@ -1431,18 +1432,22 @@ def api_get_health() -> dict:
         return {"error": str(error), "read_only": True, "tables": {}}
 
 
-def api_get_compaction_plan() -> dict:
+def api_get_compaction_plan(mode: str = "routine") -> dict:
     """GET compaction plan — calculate backup retention without writing."""
     health = api_get_health()
     if health.get("error"):
         return health
     estimate = health.get("maintenance_estimate", {})
-    return compaction_plan(
-        LANCEDB_PATH,
-        HERMES_HOME / "backups",
-        estimated_after_bytes=int(estimate.get("estimated_after_bytes") or 0),
-        diagnostics=health,
-    )
+    try:
+        return compaction_plan(
+            LANCEDB_PATH,
+            HERMES_HOME / "backups",
+            estimated_after_bytes=int(estimate.get("estimated_after_bytes") or 0),
+            diagnostics=health,
+            mode=mode,
+        )
+    except ValueError as error:
+        return {"error": str(error), "code": "invalid_maintenance_mode"}
 
 
 def api_compact(data: dict) -> dict:
@@ -1452,6 +1457,9 @@ def api_compact(data: dict) -> dict:
             "error": "Explicit confirmation is required",
             "code": "confirmation_required",
         }
+    mode = data.get("mode", "routine")
+    if mode not in {"routine", "reclaim"}:
+        return {"error": "mode must be routine or reclaim", "code": "invalid_maintenance_mode"}
     if not _compaction_lock.acquire(blocking=False):
         return {
             "error": "A compaction is already running",
@@ -1459,7 +1467,7 @@ def api_compact(data: dict) -> dict:
         }
     try:
         _reset_store()
-        return compact_lancedb(LANCEDB_PATH, HERMES_HOME / "backups")
+        return compact_lancedb(LANCEDB_PATH, HERMES_HOME / "backups", mode=mode)
     finally:
         _reset_store()
         _compaction_lock.release()
@@ -2001,7 +2009,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/health":
             self._send_json(api_get_health())
         elif path == "/api/maintenance/compact/plan":
-            self._send_json(api_get_compaction_plan())
+            self._send_json(api_get_compaction_plan(params.get("mode", ["routine"])[0]))
         elif path == "/api/clusters":
             threshold = float(params.get("threshold", ["0.6"])[0])
             min_size = int(params.get("min_size", ["2"])[0])

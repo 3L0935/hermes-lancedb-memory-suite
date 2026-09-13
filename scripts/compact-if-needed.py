@@ -38,7 +38,7 @@ def run(base_url: str, *, timeout: float = 30.0) -> tuple[int, dict]:
 
     result = request_json(
         f"{base_url}/api/maintenance/compact",
-        data={"confirmed": True},
+        data={"confirmed": True, "mode": "routine"},
         timeout=timeout,
     )
     if result.get("code") in {"compaction_in_progress", "maintenance_lock_busy"}:

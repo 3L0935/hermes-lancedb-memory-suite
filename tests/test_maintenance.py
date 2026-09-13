@@ -3,7 +3,7 @@ import fcntl
 import os
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,6 +16,7 @@ from plugin.store import LanceDBStore
 
 from server.maintenance import (
     MAINTENANCE_MAX_FRAGMENTS,
+    MAINTENANCE_MIN_RECLAIMABLE_BYTES,
     MAINTENANCE_TABLES,
     _active_index_uuids,
     _physical_index_uuids,
@@ -139,7 +140,7 @@ class MaintenanceTests(unittest.TestCase):
                 (Path(result["backup_created"]) / "memories.lance" / "_indices"
                  / abandoned_index.name / "marker").is_file()
             )
-            self.assertFalse(abandoned_index.exists())
+            self.assertTrue(abandoned_index.exists())
             self.assertTrue(unrelated.is_dir())
             self.assertEqual(2, len(list(backups_path.glob("lancedb-pre-compact-*"))))
             self.assertEqual([], list(backups_path.glob(".*.tmp-*")))
@@ -148,13 +149,16 @@ class MaintenanceTests(unittest.TestCase):
                 self.assertEqual(1, result["rows"][name]["after"])
                 self.assertTrue(result["rows"][name]["version_readable"])
             self.assertEqual(0, result["fts_num_unindexed_rows"])
-            self.assertGreaterEqual(
-                result["orphan_index_directories_removed"]["memories"], 1
+            self.assertIsNone(result["orphan_index_directories_removed"]["memories"])
+            self.assertEqual(
+                "skipped_unproven_snapshot_reachability",
+                result["manual_index_cleanup"],
             )
             memories = lancedb.connect(str(db_path)).open_table("memories")
-            self.assertEqual(
-                _active_index_uuids(memories),
-                _physical_index_uuids(db_path, "memories"),
+            self.assertTrue(
+                _active_index_uuids(memories).issubset(
+                    _physical_index_uuids(db_path, "memories")
+                )
             )
 
     def test_backup_failure_leaves_orphan_index_directory_untouched(self):
@@ -174,7 +178,7 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual("backup", result["failed_step"])
             self.assertTrue((orphan / "marker").is_file())
 
-    def test_orphan_cleanup_failure_reports_step_and_keeps_backup(self):
+    def test_manual_orphan_cleanup_is_never_attempted(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             db_path = root / "lancedb"
@@ -183,11 +187,9 @@ class MaintenanceTests(unittest.TestCase):
             orphan = db_path / "memories.lance" / "_indices" / str(uuid4())
             orphan.mkdir(parents=True)
 
-            with patch("server.maintenance.shutil.rmtree", side_effect=OSError("delete failed")):
-                result = compact_lancedb(db_path, backups_path)
+            result = compact_lancedb(db_path, backups_path)
 
-            self.assertFalse(result["success"])
-            self.assertEqual("cleanup_indices.memories", result["failed_step"])
+            self.assertTrue(result["success"], result)
             self.assertTrue(Path(result["backup_created"]).is_dir())
             self.assertTrue(orphan.is_dir())
 
@@ -253,11 +255,12 @@ class MaintenanceTests(unittest.TestCase):
             result = compact_lancedb(
                 db_path,
                 backups_path,
-                disk_usage=lambda _path: SimpleNamespace(free=63),
+                disk_usage=lambda _path: SimpleNamespace(free=100),
             )
 
             self.assertFalse(result["success"])
             self.assertEqual("disk_space", result["failed_step"])
+            self.assertEqual(128, result["required_combined_bytes"])
             self.assertFalse(backups_path.exists())
 
     def test_plan_names_backup_and_exact_old_backups_to_purge_without_writing(self):
@@ -314,6 +317,137 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(1, len(plan["trigger_reasons"]))
             self.assertIn("memories.fragments", plan["trigger_reasons"][0])
 
+    def test_plan_recommends_only_when_byte_floor_and_ratio_are_both_met(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "lancedb"
+            backups_path = root / "backups"
+            db_path.mkdir()
+            measured = MAINTENANCE_MIN_RECLAIMABLE_BYTES + 4 * 1024 * 1024
+            with patch(
+                "server.maintenance.directory_size",
+                side_effect=lambda path: measured if Path(path) == db_path else 0,
+            ):
+                plan = compaction_plan(
+                    db_path,
+                    backups_path,
+                    estimated_after_bytes=4 * 1024 * 1024,
+                )
+
+            self.assertTrue(plan["recommended"])
+            self.assertEqual(measured, plan["database_bytes"])
+            self.assertEqual(
+                measured - 4 * 1024 * 1024,
+                plan["reclaimable_bytes_estimate"],
+            )
+
+    def test_success_state_enforces_cooldown_and_skips_unchanged_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "lancedb"
+            backups_path = root / "backups"
+            create_fixture_database(db_path)
+            started = datetime(2026, 9, 12, 2, 3, 4)
+            result = compact_lancedb(db_path, backups_path, now=lambda: started)
+            self.assertTrue(result["success"], result)
+            versions = {
+                name: row["version"] for name, row in result["rows"].items()
+            }
+            diagnostics = {
+                "tables": {
+                    "memories": {
+                        "current_version": versions["memories"] + 1,
+                        "versions": 2,
+                        "fragments": MAINTENANCE_MAX_FRAGMENTS + 1,
+                    }
+                }
+            }
+            cooldown = compaction_plan(
+                db_path,
+                backups_path,
+                estimated_after_bytes=0,
+                diagnostics=diagnostics,
+                now=lambda: started + timedelta(minutes=30),
+            )
+            self.assertFalse(cooldown["recommended"])
+            self.assertEqual("cooldown", cooldown["deferred_reason"])
+
+            diagnostics["tables"] = {
+                name: {
+                    "current_version": version,
+                    "versions": 99,
+                    "fragments": 99,
+                }
+                for name, version in versions.items()
+            }
+            unchanged = compaction_plan(
+                db_path,
+                backups_path,
+                estimated_after_bytes=0,
+                diagnostics=diagnostics,
+                now=lambda: started + timedelta(hours=2),
+            )
+            self.assertFalse(unchanged["recommended"])
+            self.assertEqual("unchanged_since_last_success", unchanged["deferred_reason"])
+
+    def test_routine_compaction_keeps_recent_snapshot_readable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "lancedb"
+            backups_path = root / "backups"
+            create_fixture_database(db_path)
+            table = lancedb.connect(str(db_path)).open_table("memories")
+            retained_version = int(table.version)
+            table.add([{"id": "bbbbbbbb-bbb", "content": "Project:Beta state=active [Tier=2]"}])
+
+            result = compact_lancedb(db_path, backups_path, mode="routine")
+
+            self.assertTrue(result["success"], result)
+            self.assertEqual(24 * 60 * 60, result["history_retention_seconds"])
+            retained = lancedb.connect(str(db_path)).open_table("memories")
+            retained.checkout(retained_version)
+            self.assertEqual(1, retained.count_rows())
+
+    def test_explicit_reclaim_uses_zero_age_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "lancedb"
+            backups_path = root / "backups"
+            create_fixture_database(db_path)
+
+            result = compact_lancedb(db_path, backups_path, mode="reclaim")
+
+            self.assertTrue(result["success"], result)
+            self.assertEqual(0, result["history_retention_seconds"])
+            self.assertEqual("reclaim", result["mode"])
+
+    def test_unreadable_new_backup_does_not_rotate_known_backups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "lancedb"
+            backups_path = root / "backups"
+            create_fixture_database(db_path)
+            backups_path.mkdir()
+            for suffix in ("20260910-000000", "20260911-000000"):
+                (backups_path / f"lancedb-pre-compact-{suffix}").mkdir()
+
+            def reject_backup(path):
+                if Path(path).resolve() != db_path.resolve():
+                    raise OSError("unreadable copied database")
+                return lancedb.connect(path)
+
+            result = compact_lancedb(
+                db_path,
+                backups_path,
+                connect=reject_backup,
+                now=lambda: datetime(2026, 9, 12, 2, 3, 4),
+            )
+
+            self.assertFalse(result["success"])
+            self.assertEqual("backup_verify", result["failed_step"])
+            self.assertEqual([], result["backups_deleted"])
+            self.assertEqual(3, len(list(backups_path.glob("lancedb-pre-compact-*"))))
+
     def test_server_rejects_second_compaction_and_compose_mounts_only_backup_root(self):
         self.assertTrue(server._compaction_lock.acquire(blocking=False))
         try:
@@ -332,7 +466,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertIn('id="compact-plan-button"', html)
         self.assertIn("loadCompactionPlan", app)
         self.assertIn("runCompaction", app)
-        self.assertIn("Writes from another process", html)
+        self.assertIn("hourly routine keeps 24 hours", html)
 
 
 if __name__ == "__main__":

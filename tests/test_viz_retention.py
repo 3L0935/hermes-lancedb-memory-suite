@@ -664,9 +664,13 @@ class VizRetentionTests(unittest.TestCase):
     def test_health_diagnostics_separate_useful_history_fts_and_ollama_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "lancedb"
+            backups_path = Path(tmp) / "backups"
             table_dir = db_path / "memories.lance"
             table_dir.mkdir(parents=True)
             (table_dir / "history.bin").write_bytes(b"x" * 1000)
+            managed_backup = backups_path / "lancedb-pre-compact-test"
+            managed_backup.mkdir(parents=True)
+            (managed_backup / "copy.bin").write_bytes(b"b" * 250)
             fts = SimpleNamespace(index_type="FTS", columns=["content"], num_unindexed_rows=3, num_indexed_rows=7)
             database = FakeHealthDatabase({
                 "memories": FakeHealthTable(version=5, rows=10, useful_bytes=400, fragments=4, indices=[fts]),
@@ -674,6 +678,7 @@ class VizRetentionTests(unittest.TestCase):
 
             result = server.collect_health_diagnostics(
                 db_path, database,
+                backups_path=backups_path,
                 pipeline={"model": "nomic-embed-text", "dimension": 768, "version": 2},
                 ollama_probe=lambda: {"state": "error", "error": "connection refused"},
             )
@@ -684,6 +689,10 @@ class VizRetentionTests(unittest.TestCase):
         self.assertEqual(3, result["fts"]["num_unindexed_rows"])
         self.assertEqual(400, result["storage"]["useful_bytes"])
         self.assertEqual(600, result["storage"]["history_bytes"])
+        self.assertEqual(1000, result["storage"]["database_bytes"])
+        self.assertEqual(250, result["storage"]["managed_backup_bytes"])
+        self.assertEqual(1250, result["storage"]["total_footprint_bytes"])
+        self.assertEqual(600, result["storage"]["reclaimable_bytes_estimate"])
         self.assertEqual("error", result["ollama"]["state"])
         self.assertEqual("nomic-embed-text", result["pipeline"]["model"])
         self.assertEqual(400, result["maintenance_estimate"]["estimated_after_bytes"])

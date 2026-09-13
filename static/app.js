@@ -443,12 +443,15 @@ async function loadHealth() {
     const ollama = data.ollama || {};
     const storage = data.storage || {};
     const estimate = data.maintenance_estimate || {};
+    const lastMaintenance = data.last_maintenance || {};
     const pipeline = data.pipeline || {};
     container.innerHTML =
       '<div class="health-card"><span>Pipeline</span><b>' + escapeHtml(pipeline.model || 'unknown') + '</b><small>' + escapeHtml((pipeline.dimension || '?') + 'd · contract v' + (pipeline.version || '?') + ' · ' + (pipeline.metric || '?')) + '</small></div>' +
       '<div class="health-card"><span>FTS</span><b class="health-' + escapeHtmlAttr(fts.state || 'missing') + '">' + escapeHtml(fts.state || 'missing') + '</b><small>' + escapeHtml(fts.num_unindexed_rows ?? 'unknown') + ' unindexed rows</small></div>' +
-      '<div class="health-card"><span>Storage</span><b>' + formatBytes(storage.disk_bytes) + '</b><small>' + formatBytes(storage.useful_bytes) + ' useful · ' + formatBytes(storage.history_bytes) + ' history</small></div>' +
+      '<div class="health-card"><span>Database</span><b>' + formatBytes(storage.database_bytes) + '</b><small>' + formatBytes(storage.active_bytes_estimate) + ' active estimate · ' + formatBytes(storage.reclaimable_bytes_estimate) + ' reclaimable estimate</small></div>' +
+      '<div class="health-card"><span>Backups</span><b>' + formatBytes(storage.managed_backup_bytes) + '</b><small>' + formatBytes(storage.total_footprint_bytes) + ' database + managed backups</small></div>' +
       '<div class="health-card"><span>Ollama</span><b class="health-' + escapeHtmlAttr(ollama.state || 'error') + '">' + escapeHtml(ollama.state || 'error') + '</b><small>' + escapeHtml(ollama.error || ('HTTP ' + (ollama.status || '?'))) + '</small></div>' +
+      '<div class="health-card"><span>Last maintenance</span><b>' + escapeHtml(lastMaintenance.last_success_at || 'Never') + '</b><small>' + (lastMaintenance.last_success_at ? formatBytes(lastMaintenance.actual_reclaimed_bytes) + ' reclaimed · ' + formatBytes(lastMaintenance.backup_created_bytes) + ' backup' : 'No successful run recorded') + '</small></div>' +
       '<div class="health-table"><table class="data-table"><thead><tr><th>Table</th><th>State</th><th>Rows</th><th>Version / history</th><th>Fragments</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' +
       '<div class="health-estimate">Before maintenance: backup ' + formatBytes(estimate.backup_bytes) + ' · estimated DB after ' + formatBytes(estimate.estimated_after_bytes) + ' · reclaimable ' + formatBytes(estimate.estimated_reclaimable_bytes) + ' (estimate only)</div>';
   } catch(e) {
@@ -470,17 +473,17 @@ async function loadCompactionPlan() {
   panel.hidden = false;
   compactionPlanReady = false;
   try {
-    const plan = await fetch(API + '/maintenance/compact/plan').then(response => response.json());
+    const plan = await fetch(API + '/maintenance/compact/plan?mode=reclaim').then(response => response.json());
     if (plan.error) throw new Error(plan.error);
     const deleted = (plan.backups_to_delete || []).length
       ? (plan.backups_to_delete || []).map(path => '<li><code>' + escapeHtml(shortPath(path)) + '</code></li>').join('')
       : '<li>None</li>';
     content.innerHTML =
-      '<div class="compact-metrics"><span>Current <b>' + formatBytes(plan.size_before_bytes) + '</b></span><span>Estimated after <b>' + formatBytes(plan.estimated_after_bytes) + '</b></span></div>' +
+      '<div class="compact-metrics"><span>Database <b>' + formatBytes(plan.database_bytes) + '</b></span><span>Managed backups <b>' + formatBytes(plan.managed_backup_bytes) + '</b></span><span>Total <b>' + formatBytes(plan.total_footprint_bytes) + '</b></span><span>Reclaimable estimate <b>' + formatBytes(plan.reclaimable_bytes_estimate) + '</b></span></div>' +
       '<p>Backup to create</p><ul class="compact-paths"><li><code title="' + escapeHtmlAttr(plan.backup_to_create || '') + '">' + escapeHtml(shortPath(plan.backup_to_create)) + '</code></li></ul>' +
       '<p>Old managed backups to delete</p><ul class="compact-paths">' + deleted + '</ul>' +
-      '<label class="compact-confirm"><input id="compact-confirm" type="checkbox" onchange="document.getElementById(\'compact-run\').disabled=!this.checked"> I paused other writers and confirm this maintenance action.</label>' +
-      '<button id="compact-run" class="btn-neon btn-delete" onclick="runCompaction()" disabled>Compact database</button>' +
+      '<label class="compact-confirm"><input id="compact-confirm" type="checkbox" onchange="document.getElementById(\'compact-run\').disabled=!this.checked"> I drained old readers and confirm the zero-age reclaim with the verified backup above.</label>' +
+      '<button id="compact-run" class="btn-neon btn-delete" onclick="runCompaction()" disabled>Reclaim database history</button>' +
       '<pre id="compact-result" class="compact-result" hidden></pre>';
     compactionPlanReady = true;
   } catch(e) {
@@ -504,7 +507,7 @@ async function runCompaction() {
   try {
     const response = await fetch(API + '/maintenance/compact', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({confirmed: true}),
+      body: JSON.stringify({confirmed: true, mode: 'reclaim'}),
     });
     const result = await response.json();
     output.textContent = JSON.stringify(result, null, 2);
@@ -515,7 +518,7 @@ async function runCompaction() {
   } catch(e) {
     output.textContent = 'Compaction request failed: ' + e.message;
   } finally {
-    button.textContent = 'Compact database';
+    button.textContent = 'Reclaim database history';
     button.disabled = true;
   }
 }
