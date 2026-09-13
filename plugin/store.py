@@ -511,6 +511,34 @@ def extract_entities(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _select_entity_links(signatures: dict[str, set[str]]) -> dict[str, list[str]]:
+    """Select up to eight IDs per significant-entity signature, without I/O.
+
+    IDs, not fragment scan order, break ties. This deliberately migrates the
+    retained subsets of high-degree memories; it is not a neutral reorder.
+    """
+    by_entity: dict[str, list[str]] = {}
+    for memory_id, signature in signatures.items():
+        for entity in signature:
+            by_entity.setdefault(entity, []).append(memory_id)
+
+    # Only pairs sharing entities can qualify; avoid a full corpus pair scan.
+    pair_counts: dict[tuple[str, str], int] = {}
+    for members in by_entity.values():
+        members = sorted(members)
+        for i, left in enumerate(members):
+            for right in members[i + 1:]:
+                key = (left, right)
+                pair_counts[key] = pair_counts.get(key, 0) + 1
+
+    candidates: dict[str, list[str]] = {memory_id: [] for memory_id in signatures}
+    for (left, right), shared in pair_counts.items():
+        if shared >= 2:
+            candidates[left].append(right)
+            candidates[right].append(left)
+    return {memory_id: sorted(neighbors)[:8] for memory_id, neighbors in candidates.items()}
+
+
 class LanceDBStore:
     """Vector memory store using LanceDB with Ollama embeddings."""
 
@@ -3085,57 +3113,15 @@ class LanceDBStore:
     # -----------------------------------------------------------------------
 
     def _rebuild_links_for(self, memory_id: str) -> None:
-        """Build links for a single memory against all other memories."""
-        memory_id = _require_memory_id(memory_id)
-        target = self._get_by_id_raw(memory_id)
-        if not target:
-            return
-        target_entities = set(target.get("entities", []))
-        target_sig = {e for e in target_entities if e not in _STOP_ENTITIES}
-
-        all_memories = self.get_all()
-        linked = []
-        for m in all_memories:
-            if m["id"] == memory_id:
-                continue
-            m_entities = set(m.get("entities", []))
-            m_sig = {e for e in m_entities if e not in _STOP_ENTITIES}
-            shared = target_sig & m_sig
-            if len(shared) >= 2:
-                linked.append(m["id"])
-        linked = linked[:8]
-        self._table.update(
-            f"id = {_sql_literal(memory_id)}", {"links": json.dumps(linked)}
-        )
-
-        for lid in linked:
-            row = self._table.search().where(
-                f"id = {_sql_literal(lid)}"
-            ).limit(1).to_list()
-            if row:
-                existing = json.loads(row[0].get("links", "[]") or "[]")
-                if memory_id not in existing:
-                    existing = list(existing) + [memory_id]
-                    existing = existing[:8]
-                    self._table.update(
-                        f"id = {_sql_literal(lid)}", {"links": json.dumps(existing)}
-                    )
+        """Recalculate this memory and old/new incoming neighbors, without appends."""
+        self._rebuild_entity_links(_require_memory_id(memory_id))
 
     def _rebuild_all_links(self) -> None:
-        """Rebuild entity-based links and write back ONLY the rows that changed.
+        """Migrate/rebuild derived links using the stable ID policy, differentially."""
+        self._rebuild_entity_links()
 
-        The previous version issued one ``_table.update`` per memory, in a loop
-        over the whole corpus. Measured on a 468-row store: that is 469 table
-        versions and 467 fragments (7.93 s) for a single delete, because Lance
-        creates a version and a fragment per update. Two consequences, both real:
-        the database balloons, and the full-text index goes stale for the whole
-        duration, which silently changes the BM25 scale the abstention threshold
-        was calibrated against (a must-abstain question scored 12.23 with a
-        current index and 0.74 with a stale one).
-
-        The computation is unchanged; only the writes are now differential. Rows
-        whose link list is identical to what is stored are not rewritten at all.
-        """
+    def _rebuild_entity_links(self, memory_id: str | None = None) -> None:
+        """Write only changed link sets; callers own the existing writer batch."""
         all_memories = self.get_all()
         mem_sigs = {}
         stored_links = {}
@@ -3152,38 +3138,18 @@ class LanceDBStore:
                     raw_links = []
             stored_links[mem_id] = [str(link) for link in raw_links]
 
-        # Candidate pairs come from an inverted signature index (a pair can only
-        # link when it shares >= 2 signature entities), so the scan is O(pairs)
-        # instead of O(n^2) over every couple.
-        by_entity: dict[str, list[str]] = {}
-        for mem_id, sig in mem_sigs.items():
-            for entity in sig:
-                by_entity.setdefault(entity, []).append(mem_id)
-
-        pair_counts: dict[tuple[str, str], int] = {}
-        for members in by_entity.values():
-            if len(members) < 2:
-                continue
-            members = sorted(members)
-            for i, left in enumerate(members):
-                for right in members[i + 1:]:
-                    key = (left, right)
-                    pair_counts[key] = pair_counts.get(key, 0) + 1
-
-        linked: dict[str, list[str]] = {mem_id: [] for mem_id in mem_sigs}
-        for (left, right), shared in pair_counts.items():
-            if shared < 2:
-                continue
-            linked[left].append(right)
-            linked[right].append(left)
-
-        # Kept in scan order, exactly as the previous implementation did, so the
-        # retained subset does not change. Only the writes became differential.
-        scan_order = {mem_id: position for position, mem_id in enumerate(mem_sigs)}
+        if memory_id is not None and memory_id not in mem_sigs:
+            return
+        selected = _select_entity_links(mem_sigs)
         changed = 0
-        for mem_id, candidates in linked.items():
-            targets = sorted(candidates, key=scan_order.get)[:8]
-            if set(targets) == set(stored_links.get(mem_id) or []):
+        for mem_id, targets in selected.items():
+            previous = stored_links[mem_id]
+            # A target change can affect old or newly selected incoming links,
+            # even when that neighbor is outside the target's own eight links.
+            if (memory_id is not None and mem_id != memory_id
+                    and memory_id not in previous and memory_id not in targets):
+                continue
+            if set(targets) == set(previous):
                 continue
             self._table.update(
                 f"id = {_sql_literal(mem_id)}", {"links": json.dumps(targets)}
