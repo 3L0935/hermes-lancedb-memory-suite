@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from plugin.memory_contract import MemoryPatch, MemoryWrite
 from plugin.store import LanceDBStore
 from server.maintenance import (
     collect_health_diagnostics,
@@ -35,16 +36,40 @@ def fake_embed(_self, text: str) -> np.ndarray:
 def snapshot(db_path: Path) -> dict[str, int]:
     table_path = db_path / "memories.lance"
     indices_path = table_path / "_indices"
+    data_path = table_path / "data"
+    versions_path = table_path / "_versions"
+    data_bytes = sum(item.stat().st_size for item in data_path.rglob("*") if item.is_file())
+    manifest_bytes = sum(
+        item.stat().st_size for item in versions_path.rglob("*") if item.is_file()
+    )
+    index_bytes = sum(
+        item.stat().st_size for item in indices_path.rglob("*") if item.is_file()
+    ) if indices_path.is_dir() else 0
     return {
         "database_bytes": sum(
             item.stat().st_size for item in db_path.rglob("*") if item.is_file()
         ),
-        "memory_versions": len(list((table_path / "_versions").glob("*.manifest"))),
-        "memory_fragments": len(list((table_path / "data").glob("*.lance"))),
+        "memory_data_bytes": data_bytes,
+        "memory_manifest_bytes": manifest_bytes,
+        "memory_index_bytes": index_bytes,
+        "memory_versions": len(list(versions_path.glob("*.manifest"))),
+        "memory_fragments": len(list(data_path.glob("*.lance"))),
         "memory_index_directories": (
             len([item for item in indices_path.iterdir() if item.is_dir()])
             if indices_path.is_dir() else 0
         ),
+    }
+
+
+def measured_operation(db_path: Path, operation) -> dict:
+    before = snapshot(db_path)
+    result = operation()
+    after = snapshot(db_path)
+    return {
+        "before": before,
+        "after": after,
+        "delta": {key: after[key] - before[key] for key in before},
+        "result": result,
     }
 
 
@@ -82,6 +107,41 @@ def run_measurement() -> dict:
             store._ensure_conflicts_table()
             store._ensure_conflicts_archive_table()
 
+            operation_deltas = {}
+            operation_deltas["add"] = measured_operation(
+                db_path,
+                lambda: store.add_memory(MemoryWrite.from_mapping({
+                    "domain": "Project", "subject": "MeasuredAdd",
+                    "facts": ["state=active"], "tier": 2, "category": "project",
+                }))["status"],
+            )
+            operation_deltas["metadata"] = measured_operation(
+                db_path,
+                lambda: store.update_tags(memory_id, ["measured-metadata"]),
+            )
+            operation_deltas["content"] = measured_operation(
+                db_path,
+                lambda: store.update_memory(MemoryPatch.from_mapping({
+                    "memory_id": memory_id,
+                    "facts": ["state=updated marker=baseline"],
+                }))["status"],
+            )
+            operation_deltas["relation_only"] = measured_operation(
+                db_path,
+                lambda: store.update_memory(MemoryPatch.from_mapping({
+                    "memory_id": memory_id,
+                    "relations": [{"type": "uses", "target_id": new_memory_id}],
+                }))["status"],
+            )
+            added_id = next(
+                row["id"] for row in store.get_all()
+                if row["content"].startswith("Project:MeasuredAdd ")
+            )
+            operation_deltas["bulk_delete"] = measured_operation(
+                db_path,
+                lambda: store.bulk_delete([added_id])["deleted"],
+            )
+
             before_reads = snapshot(db_path)
             provenance = {
                 "engine": f"lancedb=={getattr(lancedb, '__version__', 'unknown')}",
@@ -106,7 +166,7 @@ def run_measurement() -> dict:
                 estimated_after_bytes=health["maintenance_estimate"]["estimated_after_bytes"],
                 diagnostics=health,
             )
-            compacted = compact_lancedb(db_path, backups_path)
+            compacted = compact_lancedb(db_path, backups_path, mode="reclaim")
             after_compaction = snapshot(db_path)
         finally:
             LanceDBStore._embed = original_embed
@@ -138,6 +198,7 @@ def run_measurement() -> dict:
             "read_delta": {
                 key: after_reads[key] - before_reads[key] for key in before_reads
             },
+            "operation_deltas": operation_deltas,
             "plan": {
                 "recommended": plan["recommended"],
                 "trigger_reasons": plan["trigger_reasons"],
