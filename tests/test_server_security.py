@@ -232,6 +232,22 @@ class ConcurrentTransportTests(unittest.TestCase):
         self.assertEqual("heavy_work_busy", json.loads(body)["code"])
         self.assertEqual([200, 200], sorted(result[0] for result in results))
 
+    def test_graph_default_matches_slider_and_th_alias_is_supported(self):
+        seen = []
+
+        def graph(**kwargs):
+            seen.append(kwargs)
+            return {"nodes": [], "edges": []}
+
+        with patch.object(server, "get_graph_data", side_effect=graph):
+            self.assertEqual(200, self.request("/api/graph")[0])
+            self.assertEqual(200, self.request("/api/graph?th=0.7")[0])
+            self.assertEqual(
+                200, self.request("/api/graph?threshold=0.9&th=0.6")[0]
+            )
+
+        self.assertEqual([0.8, 0.7, 0.9], [call["threshold"] for call in seen])
+
 
 class ContainerBindingTests(unittest.TestCase):
     def test_container_ports_are_published_on_ipv4_loopback_only(self):

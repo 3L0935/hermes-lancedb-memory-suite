@@ -304,6 +304,11 @@ Counters, category and tier breakdown, tags, most-accessed memories.
 The graph opens on the **whole corpus** and draws embedding-similarity edges only.
 Clicking a memory does not reload it: the sidebar opens over the graph and the node and
 its neighbours glow. `Escape`, the close button, or a click on empty canvas clears it.
+The API and slider both default to cosine similarity `0.8` (`th` is a supported alias
+for `threshold`). Every memory remains visible, including rows without a usable vector.
+Semantic edges use mutual top-8 neighbours and a fixed 1,200-edge cap; the UI reports
+this policy. Declared relations and category/entity hub connectors are separate and
+are never charged to the semantic cap.
 
 | Whole corpus | Memory selected |
 |---|---|
@@ -358,7 +363,7 @@ most 250 ms, then receives `503` with `Retry-After: 1`. This keeps small routes
 responsive without claiming to reduce CPU-bound Python work.
 
 ```
-GET  /api/graph                         — whole corpus by default (`threshold`, `cluster`, `show_declared`); `memory_id` selects one memory
+GET  /api/graph                         — whole corpus; `threshold`/`th` default 0.8, mutual top-8 semantic edges capped at 1,200
 GET  /api/stats                         — raw statistics
 GET  /api/typed-edges                   — all persisted typed edges
 GET  /api/search                        — routed search (`q`, `top_k`, `diagnostics`)

@@ -703,14 +703,18 @@ function applyFilters() {
 function updateBudgetLabel(matchCount, filtered) {
   const el = document.getElementById('hidden-neighbor-count');
   if (!el) return;
-  const total = (allData.nodes || []).length;
-  const edges = (allData.edges || []).length;
+  const total = (allData.nodes || []).filter(node => node.node_type !== 'hub').length;
+  const policy = allData.edge_policy || {};
+  const semantic = policy.semantic || {};
+  const declared = policy.declared || {};
+  const hubs = policy.hubs || {};
   const hidden = allData.hidden_neighbor_count || 0;
   const byFilter = allData.hidden_by_relation_filter || 0;
-  // Only mention a budget when something was actually dropped. Printing
-  // "0 hidden by budget · 0 hidden by relation filter" on every selection
-  // described a truncation that no longer happens.
-  let text = total + ' memories · ' + edges + ' links';
+  let text = total + ' memories · ' + (semantic.returned_edges || 0) +
+    ' semantic links (mutual top ' + (semantic.top_k || 8) +
+    ', max ' + (semantic.max_edges || 1200) + ')';
+  if (declared.returned_edges) text += ' · ' + declared.returned_edges + ' declared';
+  if (hubs.returned_edges) text += ' · ' + hubs.returned_edges + ' hub links';
   if (filtered) text += ' · ' + matchCount + ' match';
   if (hidden || byFilter) text += ' · ' + hidden + ' hidden by budget, ' + byFilter + ' by relation filter';
   el.textContent = text;

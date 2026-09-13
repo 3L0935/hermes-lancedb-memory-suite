@@ -50,6 +50,8 @@ REVIEW_NEAR_DUPLICATE_THRESHOLD = 0.95
 GRAPH_MAX_NODES = 40
 GRAPH_MAX_EDGES = 80
 GRAPH_MAX_SEMANTIC_NEIGHBORS = 30
+GRAPH_SEMANTIC_TOP_K = 8
+GRAPH_MAX_SEMANTIC_EDGES = 1200
 HEAVY_WORK_MAX_CONCURRENT = 2
 HEAVY_WORK_WAIT_SECONDS = 0.25
 # Response budget: a caller-supplied top_k is clamped, never trusted.
@@ -657,7 +659,7 @@ def _build_neighborhood_graph(
 
 def get_graph_data(
     cluster: str = "raw",
-    threshold: float = 0.65,
+    threshold: float = 0.8,
     memory_id: str = "",
     relation_types: set[str] | None = None,
     show_declared: bool = False,
@@ -670,10 +672,10 @@ def get_graph_data(
     ``part_of``, ...) are drawn only when ``show_declared`` is set, so the default
     view stays the embedding structure rather than a typed-relation overlay.
 
-    The full view is affordable: measured at the slider default, 468 nodes and 372
-    similarity links serialize to about 414 KB in 0.17 s. The payload stays
-    proportional to the threshold, so raising it thins the graph instead of hiding
-    nodes.
+    Every memory remains a node, including rows without a usable vector. Semantic
+    edges require mutual membership in each endpoint's top-k neighbours and have a
+    fixed global cap. Declared relations and hub connectors are not part of that
+    semantic budget.
     """
     if not memory_id:
         threshold = min(max(float(threshold), 0.0), 1.0)
@@ -721,11 +723,12 @@ def get_graph_data(
                     by_id[target]["has_declared_relations"] = True
             except Exception:
                 pass
-        # Similarity and hub edges carry no `kind`; tag them rather than expecting
-        # the key downstream.
+        # Older builders/tests may omit the kind on semantic edges.
         for edge in edges:
             edge.setdefault("kind", "semantic")
         edges = edges + declared
+        semantic_count = sum(edge.get("kind") == "semantic" for edge in edges)
+        hub_count = sum(edge.get("kind") == "hub" for edge in edges)
         return {
             "selection_required": False,
             "overview": True,
@@ -737,6 +740,22 @@ def get_graph_data(
             "nodes": nodes,
             "edges": edges,
             "typed_edges": declared,
+            "edge_policy": {
+                "semantic": {
+                    "strategy": "mutual_top_k",
+                    "top_k": GRAPH_SEMANTIC_TOP_K,
+                    "max_edges": GRAPH_MAX_SEMANTIC_EDGES,
+                    "returned_edges": semantic_count,
+                },
+                "declared": {
+                    "budgeted": False,
+                    "returned_edges": len(declared),
+                },
+                "hubs": {
+                    "budgeted": False,
+                    "returned_edges": hub_count,
+                },
+            },
             "hidden_neighbor_count": 0,
             "available_relation_types": sorted({
                 str(e.get("relation_type") or "") for e in declared
@@ -787,7 +806,7 @@ def get_graph_data(
         return {"error": str(error), "nodes": [], "edges": []}
 
 
-def _compute_vector_data(store, threshold: float = 0.65) -> tuple:
+def _compute_vector_data(store, threshold: float = 0.8) -> tuple:
     """Compute vector similarity data shared by all graph modes.
     
     Returns (nodes, edges, nodes_by_id, sim_matrix, memories_list, threshold)
@@ -800,7 +819,6 @@ def _compute_vector_data(store, threshold: float = 0.65) -> tuple:
         return [], [], {}, None, [], threshold
 
     nodes, edges = [], []
-    seen_edges = set()
     nodes_by_id = {}
 
     cat_colors = {
@@ -810,16 +828,7 @@ def _compute_vector_data(store, threshold: float = 0.65) -> tuple:
 
     memories = []
     vectors = []
-    for r in raw:
-        vec = r.get("vector")
-        if not vec or not isinstance(vec, (list, np.ndarray)) or len(vec) < 2:
-            continue
-        vec_arr = np.array(vec, dtype=np.float32)
-        norm = np.linalg.norm(vec_arr)
-        if norm < 0.001:
-            continue
-        vec_arr = vec_arr / norm
-
+    for r in sorted(raw, key=lambda row: str(row.get("id") or "")):
         content = r["content"]
         first_part = content.split()[0] if content else "?"
         name = first_part.rstrip(":,")
@@ -842,30 +851,54 @@ def _compute_vector_data(store, threshold: float = 0.65) -> tuple:
         }
         nodes.append(node)
         nodes_by_id[node_id] = node
+
+        vec = r.get("vector")
+        if not isinstance(vec, (list, np.ndarray)) or len(vec) < 2:
+            node["vector_state"] = "missing"
+            continue
+        vec_arr = np.array(vec, dtype=np.float32)
+        norm = np.linalg.norm(vec_arr)
+        if not np.isfinite(norm) or norm < 0.001:
+            node["vector_state"] = "invalid"
+            continue
+        vec_arr = vec_arr / norm
+        node["vector_state"] = "ready"
         memories.append(node_id)
         vectors.append(vec_arr)
 
-    threshold = threshold
     sim_matrix = None
     
     if vectors:
         vec_matrix = np.array(vectors, dtype=np.float32)
         sim_matrix = np.dot(vec_matrix, vec_matrix.T)
         n = len(memories)
+        top_neighbors = []
         for i in range(n):
-            for j in range(i + 1, n):
-                score = float(sim_matrix[i][j])
-                if score >= threshold:
-                    ek = tuple(sorted([memories[i], memories[j]]))
-                    if ek not in seen_edges:
-                        seen_edges.add(ek)
-                        opacity = min(0.9, max(0.3, (score - threshold) / (1.0 - threshold)))
-                        edges.append({
-                            "from": memories[i],
-                            "to": memories[j],
-                            "label": f"{score:.2f}",
-                            "color": {"color": "#6366f1", "opacity": opacity},
-                        })
+            ranked = [
+                j for j in range(n)
+                if j != i and float(sim_matrix[i][j]) >= threshold
+            ]
+            ranked.sort(key=lambda j: (-float(sim_matrix[i][j]), memories[j]))
+            top_neighbors.append(set(ranked[:GRAPH_SEMANTIC_TOP_K]))
+
+        mutual = []
+        for i in range(n):
+            for j in top_neighbors[i]:
+                if i < j and i in top_neighbors[j]:
+                    mutual.append((float(sim_matrix[i][j]), memories[i], memories[j]))
+        mutual.sort(key=lambda item: (-item[0], item[1], item[2]))
+        for score, source, target in mutual[:GRAPH_MAX_SEMANTIC_EDGES]:
+            opacity = min(
+                0.9,
+                max(0.3, (score - threshold) / max(1e-6, 1.0 - threshold)),
+            )
+            edges.append({
+                "from": source,
+                "to": target,
+                "kind": "semantic",
+                "label": f"{score:.2f}",
+                "color": {"color": "#6366f1", "opacity": opacity},
+            })
 
     return nodes, edges, nodes_by_id, sim_matrix, memories, threshold
 
@@ -935,13 +968,13 @@ def _find_vector_communities(sim_matrix, memories, threshold: float = 0.65):
     return communities
 
 
-def _build_raw_graph(store, threshold: float = 0.65) -> dict:
+def _build_raw_graph(store, threshold: float = 0.8) -> dict:
     """Pure vector links — no hubs, no artefacts. The real LanceDB."""
     nodes, edges, _, _, _, _ = _compute_vector_data(store, threshold)
     return {"nodes": nodes, "edges": edges}
 
 
-def _build_category_hub_graph(store, threshold: float = 0.65) -> dict:
+def _build_category_hub_graph(store, threshold: float = 0.8) -> dict:
     """Vector links + category-based hubs (tech, correction, fact, project, etc.)
     
     Groups nodes by their DB category field, not by label prefix.
@@ -1010,6 +1043,7 @@ def _build_category_hub_graph(store, threshold: float = 0.65) -> dict:
                 edges.append({
                     "from": hub_id,
                     "to": item["id"],
+                    "kind": "hub",
                     "label": "domain",
                     "color": {"color": "#334155", "opacity": 0.35},
                 })
@@ -1017,7 +1051,7 @@ def _build_category_hub_graph(store, threshold: float = 0.65) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
-def _build_entity_clustered_graph(store, threshold: float = 0.65) -> dict:
+def _build_entity_clustered_graph(store, threshold: float = 0.8) -> dict:
     """Vector links + entity-based hubs for readability.
     
     Groups nodes by their most representative entities (from extract_entities
@@ -1095,6 +1129,7 @@ def _build_entity_clustered_graph(store, threshold: float = 0.65) -> dict:
                 edges.append({
                     "from": hub_id,
                     "to": item["id"],
+                    "kind": "hub",
                     "label": "tagged",
                     "color": {"color": "#334155", "opacity": 0.35},
                 })
@@ -2015,7 +2050,9 @@ class Handler(BaseHTTPRequestHandler):
         # --- Legacy endpoints (kept exactly as before) ---
         if path == "/api/graph":
             cluster = params.get("cluster", ["raw"])[0]
-            threshold = float(params.get("threshold", ["0.65"])[0])
+            threshold = float(
+                params.get("threshold", params.get("th", ["0.8"]))[0]
+            )
             memory_id = params.get("memory_id", [""])[0]
             raw_relation_types = params.get("relation_types", [""])[0]
             show_declared = params.get("show_declared", ["0"])[0] in ("1", "true", "yes")

@@ -510,6 +510,13 @@ handler le supprime aux frontières de chaque requête. Les calculs `/api/graph`
 au plus 250 ms puis reçoit `503 heavy_work_busy` et `Retry-After: 1`; ce bornage
 protège la mémoire, sans promettre d'accélération des boucles Python sous le GIL.
 
+Le graphe global prend `threshold=0.8` par défaut, comme le curseur; `th` est un
+alias accepté, avec priorité à `threshold` si les deux sont fournis. Les arêtes de
+similarité sont les voisinages top-8 **mutuels**, puis plafonnées globalement à
+1 200. La réponse `edge_policy` annonce la stratégie, le plafond et les comptes.
+Ce budget ne concerne ni les relations déclarées ni les connecteurs de hubs. Tous
+les nœuds mémoire restent présents, y compris ceux sans vecteur exploitable.
+
 ### Pitfall: Domain hubs mal groupés (catégorie DB ≠ label prefix)
 
 La fonction `_build_category_hub_graph()` dans `server.py` groupait les nodes par leur **préfixe de label** (Hermes, Bodycam, CrowdWhisper, etc.) au lieu de leur **catégorie DB** (tech, correction, fact, project, pattern). Conséquence : 19+ hubs avec des couleurs néon qui ne correspondaient pas aux couleurs des nœuds, rendant le graph visuellement incohérent.
@@ -632,9 +639,9 @@ print('Done. Cliquer sur ↻ dans l\\'UI pour voir le changement.')
 
 Quand `_embed()` dans `store.py` echoue (Ollama unreachable, timeout, model pas charge), le fallback renvoie `np.zeros(768, dtype=np.float32)`. L'entree est **ecrite dans la DB normalement** (content, category, tier OK) mais le vecteur est nul.
 
-Le graph (`server.py` → `_compute_vector_data()`) filtre ces entrees : `norm = np.linalg.norm(vec_arr)` et `if norm < 0.001: continue`. **Silencieusement** — zéro erreur, zéro log, juste un nœud qui n'apparaît pas.
+Le graph (`server.py` → `_compute_vector_data()`) conserve ces entrées comme nœuds isolés avec `vector_state=invalid`. Elles restent donc visibles et comptées, mais n'ont aucune arête de similarité.
 
-**Symptôme :** Le compteur total du dashboard dit 228, le graph montre 209. La différence = entrées à vecteur nul.
+**Ancien symptôme corrigé :** Le compteur total du dashboard disait 228 alors que le graph montrait 209. Désormais les deux couvrent toutes les mémoires.
 
 **Symptôme bis :** `docker restart lancedb-viz` ne change rien (les données sont déjà bonnes sur disque — c'est le vecteur qui est nul, pas un cache).
 

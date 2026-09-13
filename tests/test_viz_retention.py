@@ -625,6 +625,71 @@ class VizRetentionTests(unittest.TestCase):
         self.assertEqual(1, len(overlay_view["typed_edges"]))
         self.assertEqual(["depends"], overlay_view["available_relation_types"])
 
+    def test_global_graph_keeps_all_nodes_and_bounds_mutual_semantic_edges(self):
+        rows = [
+            {
+                "id": f"{index:08x}-aaa",
+                "content": f"Fact:N{index} state=active [Tier=2]",
+                "category": "fact",
+                "vector": [1.0, 0.0],
+            }
+            for index in range(10)
+        ]
+        rows.extend([
+            {
+                "id": "ffffffff-aaa", "content": "Fact:Zero state=active",
+                "category": "fact", "vector": [0.0, 0.0],
+            },
+            {
+                "id": "eeeeeeee-aaa", "content": "Fact:Missing state=active",
+                "category": "fact", "vector": None,
+            },
+        ])
+        store = SimpleNamespace(_get_all_raw=lambda: list(reversed(rows)))
+
+        nodes, edges, _by_id, _matrix, vector_ids, _threshold = (
+            server._compute_vector_data(store, threshold=0.8)
+        )
+
+        self.assertEqual(sorted(row["id"] for row in rows), [node["id"] for node in nodes])
+        self.assertEqual(10, len(vector_ids))
+        self.assertEqual(36, len(edges))
+        degree = {node["id"]: 0 for node in nodes}
+        for edge in edges:
+            degree[edge["from"]] += 1
+            degree[edge["to"]] += 1
+            self.assertEqual("semantic", edge["kind"])
+        self.assertLessEqual(max(degree.values()), server.GRAPH_SEMANTIC_TOP_K)
+        self.assertEqual(0, degree["ffffffff-aaa"])
+        self.assertEqual(0, degree["eeeeeeee-aaa"])
+
+    def test_global_graph_reports_separate_semantic_declared_and_hub_policies(self):
+        nodes = [{"id": "aaaaaaaa-aaa"}, {"id": "bbbbbbbb-bbb"}]
+        semantic = [{"from": nodes[0]["id"], "to": nodes[1]["id"],
+                     "kind": "semantic", "label": "0.90"}]
+        hub = {"nodes": nodes + [{"id": "hub:cat_fact", "node_type": "hub"}],
+               "edges": semantic + [{"from": "hub:cat_fact", "to": nodes[0]["id"],
+                                      "kind": "hub", "label": "domain"}]}
+        typed = [{"from": nodes[0]["id"], "to": nodes[1]["id"],
+                  "relation_type": "depends"}]
+        store = SimpleNamespace(get_typed_edges=lambda include_unresolved=False: typed)
+
+        with patch.object(server, "_build_category_hub_graph", return_value=hub), \
+             patch.object(server, "_get_store", return_value=store):
+            result = server.get_graph_data(
+                threshold=0.8, cluster="category_hub", show_declared=True
+            )
+
+        policy = result["edge_policy"]
+        self.assertEqual("mutual_top_k", policy["semantic"]["strategy"])
+        self.assertEqual(8, policy["semantic"]["top_k"])
+        self.assertEqual(1200, policy["semantic"]["max_edges"])
+        self.assertEqual(1, policy["semantic"]["returned_edges"])
+        self.assertFalse(policy["declared"]["budgeted"])
+        self.assertFalse(policy["hubs"]["budgeted"])
+        self.assertEqual(1, policy["declared"]["returned_edges"])
+        self.assertEqual(1, policy["hubs"]["returned_edges"])
+
     def test_graph_default_uses_embedding_links_and_hub_modes_are_opt_in(self):
         """The default layout is embedding similarity; hubs come from `cluster`.
 
