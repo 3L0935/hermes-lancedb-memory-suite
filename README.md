@@ -351,6 +351,12 @@ UMAP projection of every memory vector, next to a read-only local health inspect
 
 ### API endpoints
 
+The standard-library server handles requests concurrently. Each request owns its
+LanceDB handle so table-version refreshes are never shared between threads. Graph
+and projection calculations share two admission slots; a third request waits at
+most 250 ms, then receives `503` with `Retry-After: 1`. This keeps small routes
+responsive without claiming to reduce CPU-bound Python work.
+
 ```
 GET  /api/graph                         — whole corpus by default (`threshold`, `cluster`, `show_declared`); `memory_id` selects one memory
 GET  /api/stats                         — raw statistics
@@ -371,7 +377,7 @@ GET  /api/stale                         — stale memories (`days`, `quality_max
 GET  /api/conflicts                     — contradiction ledger (`status`, `memory_id`, `limit`)
 GET  /api/review                        — bounded read-only review inbox
 GET  /api/dashboard                     — enriched dashboard statistics
-GET  /api/refresh                       — reset the server store singleton
+GET  /api/refresh                       — discard the request store and invalidate derived caches
 POST /api/delete                        — legacy delete (`memory_id` in JSON body)
 POST /api/update                        — legacy memory update
 POST /api/update_entities               — legacy entity update

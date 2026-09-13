@@ -496,12 +496,19 @@ Les endpoints `/api/stats` et `/api/dashboard` sont **optimisés** avec :
 
 1. **`_compute_stats_fast()`** : lit les stats directement depuis les colonnes Arrow (pas de dict Python par ligne), droppe la colonne `vector` (768 floats, ~3KB/ligne) avant processing. Un seul scan pour tous les métriques.
 
-2. **`_get_cached_stats()`** : cache TTL 30s avec `threading.Lock`. Les mutations (update, delete, access, tag ops) invalident le cache via `_invalidate_cache()`.
+2. **`_get_cached_stats()`** : cache TTL 30s avec protocole génération/calcul/publication. La génération est lue sous verrou, le calcul se fait hors verrou, puis le résultat n'est publié que si aucune mutation n'a invalidé la génération. Un calcul ancien ne peut donc pas repeupler le cache après `_invalidate_cache()`.
 
 3. **Performance batterie:** (warm cache)
    - `/api/stats`: ~120ms → **~0.5ms**
    - `/api/dashboard`: ~130ms → **~0.5ms**
    - Cache miss (après mutation): ~120ms → **~57ms** (le Arrow path économise le double scan + vector col)
+
+Le serveur HTTP utilise `ThreadingHTTPServer`, mais ne partage jamais un handle de
+table entre threads : `_get_store()` conserve un handle local au thread et le
+handler le supprime aux frontières de chaque requête. Les calculs `/api/graph` et
+`/api/projection` ont ensemble deux slots d'admission. Au-delà, une requête attend
+au plus 250 ms puis reçoit `503 heavy_work_busy` et `Retry-After: 1`; ce bornage
+protège la mémoire, sans promettre d'accélération des boucles Python sous le GIL.
 
 ### Pitfall: Domain hubs mal groupés (catégorie DB ≠ label prefix)
 
@@ -729,7 +736,7 @@ systemd-run --user --collect --unit=xana-gw-restart bash -lc 'sleep 2 && systemc
 
 ### Pitfall: Singleton store cache — restart Docker obligatoire après updates directs (mitigé juin 2026)
 
-Le serveur viz (`server.py`) utilise un singleton `_get_store()` qui cree et garde une instance `LanceDBStore` en memoire (`_store_instance`). Les mutations cote serveur (POST /api/delete, POST /api/update, etc.) appellent `_reset_store()` correctement. Mais les **updates directs** sur la DB (re-embed via script, cleanup de tags, reclassifications batch) ne declenchent **jamais** `_reset_store()`.
+Le serveur viz (`server.py`) crée un handle `LanceDBStore` local à chaque requête. Les mutations côté serveur invalident les caches via `_reset_store()`. Mais les **updates directs** sur la DB (re-embed via script, cleanup de tags, reclassifications batch) ne déclenchent **jamais** cette invalidation.
 
 **Symptôme :** Tu modifies les données sur disque, le compteur du dashboard dit toujours l'ancien nombre, les nouveaux nodes n'apparaissent pas dans le graph, les tags sont obsolètes.
 
@@ -741,7 +748,7 @@ Le serveur viz (`server.py`) utilise un singleton `_get_store()` qui cree et gar
 ```
 GET /api/refresh → {"status": "ok"}
 ```
-Appelle `_reset_store()` côté serveur : drop le singleton `_store_instance`, invalide le cache stats. Le prochain appel à tout endpoint API recréera un store frais depuis la DB. Utilisable aussi en curl :
+Appelle `_reset_store()` côté serveur : supprime le handle de la requête et invalide le cache stats. La prochaine requête recréera un store frais depuis la DB. Utilisable aussi en curl :
 ```bash
 curl -s http://localhost:7777/api/refresh
 ```

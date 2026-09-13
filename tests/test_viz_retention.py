@@ -2,6 +2,7 @@ import importlib.util
 import json
 import re
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,61 @@ CONFLICT_ID = "cccccccc-ccc"
 SPEC = importlib.util.spec_from_file_location("lancedb_viz_server", ROOT / "server" / "server.py")
 server = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(server)
+
+
+class TransportConcurrencyTests(unittest.TestCase):
+    def tearDown(self):
+        server._store_instance = None
+        server._stats_cache = None
+        if hasattr(server, "_cache_generation"):
+            server._cache_generation = 0
+        if hasattr(server, "_clear_request_store"):
+            server._clear_request_store()
+
+    def test_store_handle_is_thread_local_and_cleared_between_requests(self):
+        created = []
+
+        class Store:
+            pass
+
+        module = SimpleNamespace(LanceDBStore=lambda _path: created.append(Store()) or created[-1])
+        with patch.object(server, "_import_store_module", return_value=module):
+            first = server._get_store()
+            self.assertIs(first, server._get_store())
+
+            other = []
+            thread = threading.Thread(target=lambda: other.append(server._get_store()))
+            thread.start()
+            thread.join()
+
+            server._clear_request_store()
+            next_request = server._get_store()
+
+        self.assertIsNot(first, other[0])
+        self.assertIsNot(first, next_request)
+        self.assertEqual(3, len(created))
+
+    def test_invalidated_stats_calculation_cannot_republish_stale_cache(self):
+        calculation_started = threading.Event()
+        allow_calculation_to_finish = threading.Event()
+        results = []
+
+        def compute():
+            calculation_started.set()
+            self.assertTrue(allow_calculation_to_finish.wait(timeout=2))
+            return {"total": 1}
+
+        with patch.object(server, "_compute_stats_fast", side_effect=compute):
+            worker = threading.Thread(target=lambda: results.append(server._get_cached_stats()))
+            worker.start()
+            self.assertTrue(calculation_started.wait(timeout=2))
+            server._invalidate_cache()
+            allow_calculation_to_finish.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([{"total": 1}], results)
+        self.assertIsNone(server._stats_cache)
 
 
 class FakeStore:

@@ -15,9 +15,10 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse, urlsplit
 
 try:
@@ -49,6 +50,8 @@ REVIEW_NEAR_DUPLICATE_THRESHOLD = 0.95
 GRAPH_MAX_NODES = 40
 GRAPH_MAX_EDGES = 80
 GRAPH_MAX_SEMANTIC_NEIGHBORS = 30
+HEAVY_WORK_MAX_CONCURRENT = 2
+HEAVY_WORK_WAIT_SECONDS = 0.25
 # Response budget: a caller-supplied top_k is clamped, never trusted.
 SEARCH_MAX_RESULTS = 50
 SEARCH_MAX_DIAGNOSTIC_ROWS = 50
@@ -168,6 +171,10 @@ def _parse_entities(val):
 # Store singleton
 # ---------------------------------------------------------------------------
 
+_request_store = threading.local()
+_store_factory_lock = threading.Lock()
+# Test/in-process override retained for callers that inject a fake store. The HTTP
+# server never assigns this, so production handles remain request-local.
 _store_instance = None
 
 def _import_store_module():
@@ -202,18 +209,36 @@ def _import_store_module():
         raise ImportError("LanceDB store module introuvable (canonical + runtime)")
 
 def _get_store():
-    """Lazy helper to get a LanceDBStore instance (cached)."""
-    global _store_instance
+    """Return one LanceDB handle per request thread.
+
+    LanceDB table handles call ``checkout_latest()`` before reads. Sharing one
+    handle would therefore let concurrent requests mutate each other's checked-out
+    version. The handler clears this thread-local at every request boundary.
+    """
     if _store_instance is not None:
         return _store_instance
-    _store_instance = _import_store_module().LanceDBStore(LANCEDB_PATH)
-    return _store_instance
+    store = getattr(_request_store, "instance", None)
+    if store is None:
+        # The canonical module loader writes sys.modules manually, so keep its
+        # first import atomic without serializing any database work.
+        with _store_factory_lock:
+            module = _import_store_module()
+        store = module.LanceDBStore(LANCEDB_PATH)
+        _request_store.instance = store
+    return store
+
+
+def _clear_request_store():
+    """Discard the current thread's handle at a request boundary."""
+    if hasattr(_request_store, "instance"):
+        del _request_store.instance
 
 
 def _reset_store():
-    """Reset cached store instance (after mutations that change row count)."""
+    """Discard this request's handle and invalidate shared derived data."""
     global _store_instance
     _store_instance = None
+    _clear_request_store()
     _invalidate_cache()
 
 
@@ -305,17 +330,19 @@ def _structured_update(store, memory_id: str, data: dict) -> dict:
 # Stats / dashboard cache
 # ---------------------------------------------------------------------------
 
-import threading
-
 _cache_lock = threading.Lock()
 _compaction_lock = threading.Lock()
+_heavy_work_slots = threading.BoundedSemaphore(HEAVY_WORK_MAX_CONCURRENT)
 _stats_cache = None       # (result_dict, timestamp)
 _stats_cache_ttl = 30.0   # seconds — refresh at most every 30s
+_cache_generation = 0
 
 def _invalidate_cache():
-    """Drop cached stats (after mutations)."""
-    global _stats_cache
-    _stats_cache = None
+    """Drop cached stats and prevent in-flight old work from publishing."""
+    global _stats_cache, _cache_generation
+    with _cache_lock:
+        _cache_generation += 1
+        _stats_cache = None
 
 def _compute_stats_fast() -> dict:
     """Compute stats directly from Arrow — avoids get_all() dict overhead."""
@@ -491,15 +518,18 @@ def _compute_stats_fast() -> dict:
     }
 
 def _get_cached_stats() -> dict:
-    """Return stats with a short TTL cache to avoid re-scanning on every request."""
+    """Return cached stats without holding the lock during the database scan."""
     global _stats_cache
     now = time.time()
     with _cache_lock:
         if _stats_cache is not None and (now - _stats_cache[1]) < _stats_cache_ttl:
             return _stats_cache[0]
-        result = _compute_stats_fast()
-        _stats_cache = (result, now)
-        return result
+        generation = _cache_generation
+    result = _compute_stats_fast()
+    with _cache_lock:
+        if generation == _cache_generation:
+            _stats_cache = (result, time.time())
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1953,6 +1983,30 @@ def _parse_conflict_resolution_path(path: str):
 
 class Handler(BaseHTTPRequestHandler):
 
+    def handle_one_request(self):
+        """Keep database handles confined to exactly one HTTP request."""
+        _clear_request_store()
+        try:
+            super().handle_one_request()
+        finally:
+            _clear_request_store()
+
+    def _send_heavy_result(self, calculate):
+        if not _heavy_work_slots.acquire(timeout=HEAVY_WORK_WAIT_SECONDS):
+            self._send_json(
+                {
+                    "error": "Graph/projection capacity is busy; retry shortly",
+                    "code": "heavy_work_busy",
+                },
+                status=503,
+                headers={"Retry-After": "1"},
+            )
+            return
+        try:
+            self._send_json(calculate())
+        finally:
+            _heavy_work_slots.release()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -1968,7 +2022,7 @@ class Handler(BaseHTTPRequestHandler):
             relation_types = {
                 value for value in raw_relation_types.split(",") if value
             } or None
-            self._send_json(get_graph_data(
+            self._send_heavy_result(lambda: get_graph_data(
                 cluster=cluster,
                 threshold=threshold,
                 memory_id=memory_id,
@@ -2011,7 +2065,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/projection":
             n_neighbors = int(params.get("n_neighbors", ["15"])[0])
             min_dist = float(params.get("min_dist", ["0.1"])[0])
-            self._send_json(api_get_projection(n_neighbors, min_dist))
+            self._send_heavy_result(
+                lambda: api_get_projection(n_neighbors, min_dist)
+            )
         elif path == "/api/health":
             self._send_json(api_get_health())
         elif path == "/api/maintenance/compact/plan":
@@ -2143,7 +2199,10 @@ class Handler(BaseHTTPRequestHandler):
             raise RequestBodyError(400, "JSON body must be an object")
         return data
 
-    def _send_json(self, data: dict, status: int = 200, download: str = None):
+    def _send_json(
+        self, data: dict, status: int = 200, download: str = None,
+        headers: dict[str, str] | None = None,
+    ):
         body = json.dumps(data, indent=2, default=str).encode("utf-8")
         self.send_response(status)
         if download:
@@ -2151,6 +2210,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", f'attachment; filename="{download}"')
         else:
             self.send_header("Content-Type", "application/json")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -2201,7 +2262,7 @@ def main():
     parser.add_argument("--host", default=HOST, help=f"Host (default: {HOST})")
     args = parser.parse_args()
 
-    server = HTTPServer((args.host, args.port), Handler)
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"LanceDB Memory Graph Visualizer")
     print(f"  Open:  http://{args.host}:{args.port}")
     print(f"  Data:  {LANCEDB_PATH}")

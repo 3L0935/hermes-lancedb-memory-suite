@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +154,83 @@ class ServerSecurityTests(unittest.TestCase):
 
         self.assertEqual(400, malformed_status)
         self.assertEqual(400, array_status)
+
+
+class ConcurrentTransportTests(unittest.TestCase):
+    def setUp(self):
+        self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join()
+
+    def request(self, path):
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.httpd.server_port, timeout=3
+        )
+        connection.request("GET", path)
+        response = connection.getresponse()
+        payload = response.read()
+        connection.close()
+        return response.status, dict(response.getheaders()), payload
+
+    def test_small_route_completes_while_graph_request_is_blocked(self):
+        graph_started = threading.Event()
+        release_graph = threading.Event()
+        graph_result = []
+
+        def blocked_graph(**_kwargs):
+            graph_started.set()
+            self.assertTrue(release_graph.wait(timeout=2))
+            return {"nodes": [], "edges": []}
+
+        with patch.object(server, "get_graph_data", side_effect=blocked_graph), \
+             patch.object(server, "get_stats", return_value={"total": 1}):
+            worker = threading.Thread(
+                target=lambda: graph_result.append(self.request("/api/graph"))
+            )
+            worker.start()
+            self.assertTrue(graph_started.wait(timeout=2))
+            status, _headers, body = self.request("/api/stats")
+            release_graph.set()
+            worker.join(timeout=2)
+
+        self.assertEqual(200, status)
+        self.assertEqual({"total": 1}, json.loads(body))
+        self.assertEqual(200, graph_result[0][0])
+
+    def test_third_heavy_request_is_rejected_while_two_are_running(self):
+        both_started = threading.Barrier(3)
+        release = threading.Event()
+        results = []
+
+        def blocked_graph(**_kwargs):
+            both_started.wait(timeout=2)
+            self.assertTrue(release.wait(timeout=2))
+            return {"nodes": [], "edges": []}
+
+        with patch.object(server, "get_graph_data", side_effect=blocked_graph):
+            workers = [
+                threading.Thread(
+                    target=lambda: results.append(self.request("/api/graph"))
+                )
+                for _ in range(2)
+            ]
+            for worker in workers:
+                worker.start()
+            both_started.wait(timeout=2)
+            status, headers, body = self.request("/api/graph")
+            release.set()
+            for worker in workers:
+                worker.join(timeout=2)
+
+        self.assertEqual(503, status)
+        self.assertEqual("1", headers["Retry-After"])
+        self.assertEqual("heavy_work_busy", json.loads(body)["code"])
+        self.assertEqual([200, 200], sorted(result[0] for result in results))
 
 
 class ContainerBindingTests(unittest.TestCase):
