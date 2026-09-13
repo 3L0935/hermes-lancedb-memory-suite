@@ -28,7 +28,29 @@ vectors, quality, access counters and timestamps are preserved. Equivalent sets
 are not rewritten merely to reorder their stored list. Legacy IDs already in the
 corpus retain their identity; no ID migration is performed.
 
-## Measured migration on a frozen copy
+## Production rollout — 2026-09-13
+
+The final rollout used a new SHA-256-verified copy of the 480-row database. The
+stable policy changed 170 stored link sets. One complete-row merge plus the
+outer FTS refresh moved `memories` from version 131016 to 131018 and grew the
+database from 2,723,436 to 3,879,105 bytes before cleanup. Every non-link column,
+including vectors, relations, timestamps and counters, matched exactly; every
+new link set matched the independent all-pairs manifest.
+
+Two immediate global rebuilds kept the same versions, files and byte sizes. The
+deployed store fingerprint is
+`62ba59ce9a74ac1ea9575892d1ec023a75a50b92a951c20e18ff4ec2c42c4ba6` in the
+repository, canonical plugin, compatibility plugin and viz health response.
+Both the gateway and viz were restarted after synchronization.
+
+A locked, hash-verified pre-migration backup and a verified post-migration
+backup remain under `~/.hermes/backups`. Explicit zero-age reclaim reduced the
+live database to 2,683,792 bytes with one retained version and kept 480/480 FTS
+rows indexed. It reclaimed 1,195,313 database bytes. The two managed recovery
+copies total 6,602,541 bytes, so the database plus managed backups totals
+9,286,333 bytes.
+
+## Historical pre-batching measurement on a frozen copy
 
 Source: a hash-verified `rsync -a` copy of the live directory, made at
 `2026-09-13T13:33:43.169215+02:00`. All experimentation used independent descendants of
@@ -53,14 +75,9 @@ changed flag for every row, without memory text or vectors:
 [`audit/repro/stable-links-migration-manifest.json`](../audit/repro/stable-links-migration-manifest.json).
 It and the local measurement results are intentionally ignored by Git.
 
-The one-time migration grows the physical history. This fix does not compact it,
-change maintenance thresholds, or change the backup/compaction contract. No
-migration, cleanup, deployment or runtime synchronization was performed on the
-live database. A later rollout should explicitly regenerate/review its manifest
-on a frozen copy, follow the existing backup-first procedure, and run the rebuild
-inside the existing cooperating writer batch. Reads never perform migration.
-A global rebuild after deployment migrates remaining old subsets; insertion's
-single-target path only repairs that target and affected incoming neighbors.
+This older run predates complete-row batching and is retained as causal evidence.
+The production rollout above regenerated its manifest and used the current batch
+boundary. Reads never perform migration.
 
 ## Idempotence evidence
 
@@ -93,7 +110,7 @@ not among its own eight outgoing links. An entity change repairs old and new
 neighbors. A brute-force all-pairs test oracle checks complete link sets; tests
 also compare non-link columns and assert the next global rebuild is a no-op.
 
-## Four matched delete cycles
+## Historical four matched delete cycles
 
 Each side starts with a fresh clone of the same seed. The old side uses
 `fcd52b8:plugin/store.py` loaded from a temporary module. The new side first applies
@@ -152,7 +169,8 @@ Local evidence:
 
 ## Verification and unchanged contracts
 
-Before commit, the complete suite reports **230 passed, 2 subtests passed**;
+After the disk-growth implementation, the complete suite reports **247 passed,
+2 subtests passed**;
 `node --check` succeeds for every `static/*.js`. The complete suite and JS checks
 must also be run after the final commit; their terminal output and local logs are
 the final verification record, without making another documentation-only commit.
@@ -163,6 +181,6 @@ for file in static/*.js; do node --check "$file" || exit; done
 ```
 
 `SEARCH_MIN_BM25_SCORE=12.80`, `SEARCH_MAX_COSINE_DISTANCE=0.30`,
-`lancedb==0.34.0`, routing, abstention, compaction and the read-without-writes
-contract are unchanged. No dependency was added. This work is committed on
-`main` only; no push or live migration is included.
+`lancedb==0.34.0`, routing, abstention and the read-without-writes contract are
+unchanged. No dependency was added. The production migration and verified
+reclaim are recorded in the rollout section above.
