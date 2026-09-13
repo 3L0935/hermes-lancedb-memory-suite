@@ -92,3 +92,32 @@ def test_metadata_changes_preserve_timestamp_on_noop(stored_memory):
     raw = store._get_by_id_raw(memory_id)
     assert raw["updated_at"] == timestamp
     assert json.dumps(raw["tags"], sort_keys=True)
+
+
+def test_bulk_tag_commits_all_changed_rows_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(LanceDBStore, "_embed", fake_embed)
+    store = LanceDBStore(tmp_path / "db")
+    ids = []
+    for subject in ("BulkOne", "BulkTwo"):
+        ids.append(store.add_memory(MemoryWrite.from_mapping({
+            "domain": "Project",
+            "subject": subject,
+            "facts": ["state=active"],
+            "tier": 2,
+            "category": "project",
+        }))["memory_id"])
+    store.refresh_fts_index()
+    before_rows = {row["id"]: row for row in store._get_all_raw()}
+    version_before = int(store._table.version)
+
+    result = store.bulk_tag(ids, add_tags=["batched"])
+
+    assert result == {"updated": 2, "errors": []}
+    # One complete-row merge and one writer-batch FTS refresh.
+    assert int(store._table.version) == version_before + 2
+    after_rows = {row["id"]: row for row in store._get_all_raw()}
+    for memory_id in ids:
+        assert after_rows[memory_id]["tags"] == ["batched"]
+        for field, value in before_rows[memory_id].items():
+            if field not in {"tags", "updated_at"}:
+                assert after_rows[memory_id][field] == value

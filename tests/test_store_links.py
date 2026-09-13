@@ -179,3 +179,40 @@ def test_missing_single_target_and_legacy_ids_do_not_trigger_other_writes(store)
         store._rebuild_links_for(memory_id(99))
         store._rebuild_links_for(memory_id(10))
     assert update.call_count == 0
+
+
+def test_many_link_changes_use_one_merge_and_preserve_other_columns(store):
+    store._rebuild_all_links()
+    key = memory_id(10)
+    store._table.update(
+        f"id = '{key}'", {"entities": json.dumps(["Cobalt", "Dahlia"])}
+    )
+    before = non_link_rows(store)
+    version_before = int(store._table.version)
+
+    with patch.object(
+        store, "_merge_memory_rows", wraps=store._merge_memory_rows
+    ) as merge:
+        store._rebuild_all_links()
+
+    assert merge.call_count == 1
+    assert len(merge.call_args.args[0]) > 1
+    assert int(store._table.version) == version_before + 1
+    assert non_link_rows(store) == before
+    assert_global_is_noop(store)
+
+
+def test_delete_has_bounded_memories_commits_independent_of_link_fanout(store):
+    store._rebuild_all_links()
+    store.refresh_fts_index()
+    before = non_link_rows(store)
+    version_before = int(store._table.version)
+
+    assert store.delete(memory_id(10))
+
+    # One delete, one complete-row link merge, one writer-batch FTS refresh.
+    assert int(store._table.version) == version_before + 3
+    after = non_link_rows(store)
+    assert memory_id(10) not in after
+    assert after == {key: value for key, value in before.items() if key != memory_id(10)}
+    assert_global_is_noop(store)

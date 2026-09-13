@@ -2177,20 +2177,36 @@ class LanceDBStore:
     @_serialized_mutation
     def bulk_delete(self, memory_ids: list[str]) -> dict:
         """Delete multiple memories. Returns {deleted: N, errors: [...]}."""
-        memory_ids = [_require_memory_id(mid) for mid in memory_ids]
+        memory_ids = list(dict.fromkeys(_require_memory_id(mid) for mid in memory_ids))
         self._fresh()
-        deleted = 0
         errors = []
+        accepted = []
         for mid in memory_ids:
             try:
-                if self.delete(mid):
-                    deleted += 1
-                else:
+                rows = self._table.search().where(
+                    f"id = {_sql_literal(mid)}"
+                ).limit(2).to_list()
+                if len(rows) != 1:
                     errors.append(mid)
+                    continue
+                if not self._close_conflicts_for_memory(mid, reason="memory deleted"):
+                    errors.append(mid)
+                    continue
+                if not self._cleanup_edges_for_memory(mid):
+                    errors.append(mid)
+                    continue
+                accepted.append(mid)
             except Exception as e:
                 errors.append(mid)
                 logger.error("Bulk delete failed for %s: %s", mid, e)
-        return {"deleted": deleted, "errors": errors}
+        if accepted:
+            predicate = "id IN (" + ", ".join(
+                _sql_literal(mid) for mid in accepted
+            ) + ")"
+            self._table.delete(predicate)
+            self._rebuild_all_links()
+            self._update_db_size()
+        return {"deleted": len(accepted), "errors": errors}
 
     @staticmethod
     def _tier(memory: dict) -> int:
@@ -2304,6 +2320,36 @@ class LanceDBStore:
                 mem["relations"] = json.loads(mem["relations"])
             except (json.JSONDecodeError, TypeError):
                 mem["relations"] = []
+
+    def _merge_memory_rows(self, rows: list[dict]) -> int:
+        """Replace complete existing memory rows in one Lance commit.
+
+        LanceDB 0.34 exposes only update-all for merge-insert. Callers pass
+        complete rows so vectors, timestamps, and unrelated fields survive.
+        There is deliberately no insert or delete arm.
+        """
+        if not rows:
+            return 0
+        import pyarrow as pa
+
+        json_fields = {"entities", "links", "relations", "tags"}
+        encoded = []
+        for row in rows:
+            stored = {}
+            for field in self._table.schema.names:
+                value = row.get(field)
+                if field in json_fields and not isinstance(value, str):
+                    value = json.dumps(value or [])
+                stored[field] = value
+            encoded.append(stored)
+        source = pa.Table.from_pylist(encoded, schema=self._table.schema)
+        (
+            self._table.merge_insert("id")
+            .when_matched_update_all()
+            .execute(source)
+        )
+        self._table.checkout_latest()
+        return len(encoded)
 
     # -----------------------------------------------------------------------
     # Search
@@ -2708,6 +2754,8 @@ class LanceDBStore:
         """Add/remove tags from multiple memories."""
         memory_ids = [_require_memory_id(mid) for mid in memory_ids]
         results = {"updated": 0, "errors": []}
+        changed_rows = []
+        now = time.time()
         for mid in memory_ids:
             try:
                 mem = self._get_by_id_raw(mid)
@@ -2726,14 +2774,13 @@ class LanceDBStore:
                     current_tags.difference_update(remove_tags)
                 if current_tags == set(mem.get("tags") or []):
                     continue
-                self._table.update(
-                    f"id = {_sql_literal(mid)}",
-                    {"tags": json.dumps(sorted(current_tags)), "updated_at": time.time()},
-                )
-                results["updated"] += 1
+                mem["tags"] = sorted(current_tags)
+                mem["updated_at"] = now
+                changed_rows.append(mem)
             except Exception as e:
                 results["errors"].append(mid)
                 logger.error("Bulk tag failed for %s: %s", mid, e)
+        results["updated"] = self._merge_memory_rows(changed_rows)
         return results
 
     @_serialized_mutation
@@ -3132,7 +3179,7 @@ class LanceDBStore:
 
     def _rebuild_entity_links(self, memory_id: str | None = None) -> None:
         """Write only changed link sets; callers own the existing writer batch."""
-        all_memories = self.get_all()
+        all_memories = self._get_all_raw()
         mem_sigs = {}
         stored_links = {}
         for m in all_memories:
@@ -3151,7 +3198,8 @@ class LanceDBStore:
         if memory_id is not None and memory_id not in mem_sigs:
             return
         selected = _select_entity_links(mem_sigs)
-        changed = 0
+        changed_rows = []
+        rows_by_id = {str(memory["id"]): memory for memory in all_memories}
         for mem_id, targets in selected.items():
             previous = stored_links[mem_id]
             # A target change can affect old or newly selected incoming links,
@@ -3161,10 +3209,9 @@ class LanceDBStore:
                 continue
             if set(targets) == set(previous):
                 continue
-            self._table.update(
-                f"id = {_sql_literal(mem_id)}", {"links": json.dumps(targets)}
-            )
-            changed += 1
+            rows_by_id[mem_id]["links"] = targets
+            changed_rows.append(rows_by_id[mem_id])
+        changed = self._merge_memory_rows(changed_rows)
         if changed:
             logger.info("links rebuilt for %d of %d memories", changed, len(mem_sigs))
 
