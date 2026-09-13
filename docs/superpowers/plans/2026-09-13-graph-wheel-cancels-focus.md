@@ -51,7 +51,9 @@ def test_graph_wheel_cancels_focus_and_only_node_click_moves_camera(self):
 Run:
 
 ```bash
-python -m unittest tests.test_viz_retention.VizRetentionTests.test_graph_wheel_cancels_focus_and_only_node_click_moves_camera -v
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
+  "$HOME/.hermes/hermes-agent/venv/bin/python" -m pytest \
+  tests/test_viz_retention.py::VizRetentionTests::test_graph_wheel_cancels_focus_and_only_node_click_moves_camera -v
 ```
 
 Expected: `ERROR` because `cancelCameraAnimation()` does not exist yet, or `FAIL` because `fitGraph(` remains in `graph.js`.
@@ -122,7 +124,9 @@ Change only the graph script URL in `static/index.html`:
 Run:
 
 ```bash
-python -m unittest tests.test_viz_retention.VizRetentionTests.test_graph_wheel_cancels_focus_and_only_node_click_moves_camera -v
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
+  "$HOME/.hermes/hermes-agent/venv/bin/python" -m pytest \
+  tests/test_viz_retention.py::VizRetentionTests::test_graph_wheel_cancels_focus_and_only_node_click_moves_camera -v
 ```
 
 Expected: `OK`, one test passed.
@@ -132,7 +136,8 @@ Expected: `OK`, one test passed.
 Run:
 
 ```bash
-python -m unittest tests.test_viz_retention -v
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
+  "$HOME/.hermes/hermes-agent/venv/bin/python" -m pytest tests/test_viz_retention.py -v
 ```
 
 Expected: all tests pass.

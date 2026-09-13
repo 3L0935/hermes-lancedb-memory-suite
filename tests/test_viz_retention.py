@@ -661,6 +661,31 @@ class VizRetentionTests(unittest.TestCase):
         close_sidebar = re.search(r"function closeSidebar\(\)[\s\S]*?\n}", graph).group(0)
         self.assertIn("selectedNodeId = null", close_sidebar)
 
+    def test_graph_wheel_cancels_focus_and_only_node_click_moves_camera(self):
+        html = (ROOT / "static" / "index.html").read_text()
+        graph = (ROOT / "static" / "graph.js").read_text()
+
+        load_graph = re.search(r"async function loadGraph\(\)[\s\S]*?\n}", graph).group(0)
+        close_sidebar = re.search(r"function closeSidebar\(\)[\s\S]*?\n}", graph).group(0)
+        select_memory = re.search(r"function selectMemory\(nodeId\)[\s\S]*?\n}", graph).group(0)
+        cancel_animation = re.search(
+            r"function cancelCameraAnimation\(\)[\s\S]*?\n}", graph
+        ).group(0)
+
+        self.assertNotIn("fitGraph(", graph)
+        self.assertNotIn("network.fit(", load_graph)
+        self.assertNotIn("network.fit(", close_sidebar)
+        self.assertIn("focusNode(nodeId)", select_memory)
+        self.assertIn("network.getViewPosition()", cancel_animation)
+        self.assertIn("network.getScale()", cancel_animation)
+        self.assertIn("network.moveTo(", cancel_animation)
+        self.assertIn("animation: false", cancel_animation)
+        self.assertIn(
+            "addEventListener('wheel', cancelCameraAnimation, { capture: true, passive: true })",
+            graph,
+        )
+        self.assertIn('/static/graph.js?7', html)
+
     def test_health_diagnostics_separate_useful_history_fts_and_ollama_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "lancedb"
