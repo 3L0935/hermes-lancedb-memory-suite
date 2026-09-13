@@ -2788,8 +2788,9 @@ class LanceDBStore:
         """Rename a tag across all memories. Returns number of memories updated."""
         if old_name == new_name:
             return 0
-        memories = self.get_all()
-        updated = 0
+        memories = self._get_all_raw()
+        changed_rows = []
+        now = time.time()
         for m in memories:
             tags = m.get("tags", [])
             if tags is None:
@@ -2803,18 +2804,17 @@ class LanceDBStore:
                 new_tags = [new_name if t == old_name else t for t in tags]
                 if set(new_tags) == set(tags):
                     continue
-                self._table.update(
-                    f"id = {_sql_literal(m['id'])}",
-                    {"tags": json.dumps(new_tags), "updated_at": time.time()},
-                )
-                updated += 1
-        return updated
+                m["tags"] = new_tags
+                m["updated_at"] = now
+                changed_rows.append(m)
+        return self._merge_memory_rows(changed_rows)
 
     @_serialized_mutation
     def delete_tag(self, tag: str) -> int:
         """Remove a tag from all memories. Returns number of memories updated."""
-        memories = self.get_all()
-        updated = 0
+        memories = self._get_all_raw()
+        changed_rows = []
+        now = time.time()
         for m in memories:
             tags = m.get("tags", [])
             if tags is None:
@@ -2826,18 +2826,17 @@ class LanceDBStore:
                     tags = []
             if tag in tags:
                 new_tags = [t for t in tags if t != tag]
-                self._table.update(
-                    f"id = '{m['id']}'",
-                    {"tags": json.dumps(new_tags), "updated_at": time.time()},
-                )
-                updated += 1
-        return updated
+                m["tags"] = new_tags
+                m["updated_at"] = now
+                changed_rows.append(m)
+        return self._merge_memory_rows(changed_rows)
 
     @_serialized_mutation
     def merge_tags(self, sources: list[str], target: str) -> int:
         """Merge multiple tags into one. Returns number of memories updated."""
-        memories = self.get_all()
-        updated = 0
+        memories = self._get_all_raw()
+        changed_rows = []
+        now = time.time()
         source_set = set(sources)
         for m in memories:
             tags = m.get("tags", [])
@@ -2855,12 +2854,10 @@ class LanceDBStore:
                 new_tags.add(target)
                 if new_tags == set(tags):
                     continue
-                self._table.update(
-                    f"id = {_sql_literal(m['id'])}",
-                    {"tags": json.dumps(sorted(new_tags)), "updated_at": time.time()},
-                )
-                updated += 1
-        return updated
+                m["tags"] = sorted(new_tags)
+                m["updated_at"] = now
+                changed_rows.append(m)
+        return self._merge_memory_rows(changed_rows)
 
     # -----------------------------------------------------------------------
     # Filtered queries

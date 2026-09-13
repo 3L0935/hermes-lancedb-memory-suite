@@ -121,3 +121,43 @@ def test_bulk_tag_commits_all_changed_rows_once(tmp_path, monkeypatch):
         for field, value in before_rows[memory_id].items():
             if field not in {"tags", "updated_at"}:
                 assert after_rows[memory_id][field] == value
+
+
+@pytest.mark.parametrize(
+    ("initial_tags", "operation", "expected_tags"),
+    [
+        (["old", "keep"], lambda store: store.rename_tag("old", "new"), {"new", "keep"}),
+        (["drop", "keep"], lambda store: store.delete_tag("drop"), {"keep"}),
+        (["left", "right", "keep"], lambda store: store.merge_tags(["left", "right"], "joined"), {"joined", "keep"}),
+    ],
+)
+def test_global_tag_mutations_use_one_complete_row_merge(
+    tmp_path, monkeypatch, initial_tags, operation, expected_tags
+):
+    monkeypatch.setattr(LanceDBStore, "_embed", fake_embed)
+    store = LanceDBStore(tmp_path / "db")
+    ids = [
+        store.add_memory(MemoryWrite.from_mapping({
+            "domain": "Project",
+            "subject": subject,
+            "facts": ["state=active"],
+            "tier": 2,
+            "category": "project",
+        }))["memory_id"]
+        for subject in ("GlobalTagOne", "GlobalTagTwo")
+    ]
+    for memory_id in ids:
+        assert store.update_tags(memory_id, initial_tags)
+    store.refresh_fts_index()
+    before_rows = {row["id"]: row for row in store._get_all_raw()}
+    version_before = int(store._table.version)
+
+    assert operation(store) == 2
+
+    assert int(store._table.version) == version_before + 2
+    after_rows = {row["id"]: row for row in store._get_all_raw()}
+    for memory_id in ids:
+        assert set(after_rows[memory_id]["tags"]) == expected_tags
+        for field, value in before_rows[memory_id].items():
+            if field not in {"tags", "updated_at"}:
+                assert after_rows[memory_id][field] == value

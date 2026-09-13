@@ -216,3 +216,48 @@ def test_delete_has_bounded_memories_commits_independent_of_link_fanout(store):
     assert memory_id(10) not in after
     assert after == {key: value for key, value in before.items() if key != memory_id(10)}
     assert_global_is_noop(store)
+
+
+@pytest.mark.parametrize("row_count", [20, 200])
+def test_delete_commit_budget_does_not_scale_with_unrelated_rows(
+    tmp_path, monkeypatch, row_count
+):
+    monkeypatch.setattr(
+        LanceDBStore, "_embed", lambda *_: np.eye(1, 768, dtype=np.float32)[0]
+    )
+    candidate = LanceDBStore(tmp_path / f"db-{row_count}")
+    rows = []
+    for index in range(row_count):
+        entities = (
+            ["SharedCluster", "SharedSignal"]
+            if index < 12
+            else [f"Unique{index}", f"Marker{index}"]
+        )
+        rows.append({
+            "id": memory_id(index),
+            "content": f"Project:Scale{index} marker={index} [Tier=2]",
+            "category": "project",
+            "entities": json.dumps(entities),
+            "links": "[]",
+            "relations": "[]",
+            "tags": "[]",
+            "quality": 0.5,
+            "type": "project",
+            "source": "synthetic-scale-test",
+            "session_id": "",
+            "user_id": "test",
+            "created_at": 1.0,
+            "updated_at": 2.0,
+            "access_count": 0,
+            "accessed_at": 0.0,
+            "vector": [1.0] + [0.0] * 767,
+        })
+    candidate._table.add(rows)
+    candidate._rebuild_all_links()
+    candidate.refresh_fts_index()
+    version_before = int(candidate._table.version)
+
+    assert candidate.delete(memory_id(0))
+
+    assert int(candidate._table.version) == version_before + 3
+    assert link_sets(candidate) == expected_links(candidate)
