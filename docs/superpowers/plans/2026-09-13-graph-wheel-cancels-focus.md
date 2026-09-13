@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `tests/test_viz_retention.py`
 
-- [ ] **Step 1: Write the failing regression test**
+- [x] **Step 1: Write the failing regression test**
 
 Add this test next to `test_graph_ui_selects_a_memory_without_reloading_the_graph`:
 
@@ -46,7 +46,7 @@ def test_graph_wheel_cancels_focus_and_only_node_click_moves_camera(self):
     self.assertIn('/static/graph.js?7', html)
 ```
 
-- [ ] **Step 2: Run the test and verify the intended failure**
+- [x] **Step 2: Run the test and verify the intended failure**
 
 Run:
 
@@ -58,7 +58,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 
 Expected: `ERROR` because `cancelCameraAnimation()` does not exist yet, or `FAIL` because `fitGraph(` remains in `graph.js`.
 
-- [ ] **Step 3: Commit the failing contract test**
+- [x] **Step 3: Commit the failing contract test**
 
 ```bash
 git add tests/test_viz_retention.py
@@ -71,7 +71,7 @@ git commit -m "test: lock graph camera interaction contract"
 - Modify: `static/graph.js`
 - Modify: `static/index.html`
 
-- [ ] **Step 1: Remove automatic camera fitting outside node selection**
+- [x] **Step 1: Remove automatic camera fitting outside node selection**
 
 Delete the `if (!selectedNodeId) fitGraph();` block at the end of `loadGraph()`, delete the `fitGraph();` call in `closeSidebar()`, and delete the full `fitGraph(animate = true)` helper. Keep this node-selection path unchanged:
 
@@ -88,7 +88,7 @@ function focusNode(nodeId) {
 }
 ```
 
-- [ ] **Step 2: Cancel camera animation before vis-network handles wheel zoom**
+- [x] **Step 2: Cancel camera animation before vis-network handles wheel zoom**
 
 Add this helper after `focusNode()`:
 
@@ -111,7 +111,7 @@ document.getElementById('graph-canvas').addEventListener('wheel', cancelCameraAn
 
 Capture phase ensures cancellation runs before vis-network's target handler. Passive mode ensures the listener cannot consume the native wheel event.
 
-- [ ] **Step 3: Bust the corrected graph script cache**
+- [x] **Step 3: Bust the corrected graph script cache**
 
 Change only the graph script URL in `static/index.html`:
 
@@ -119,7 +119,7 @@ Change only the graph script URL in `static/index.html`:
 <script src="/static/graph.js?7"></script>
 ```
 
-- [ ] **Step 4: Run the targeted regression test**
+- [x] **Step 4: Run the targeted regression test**
 
 Run:
 
@@ -131,7 +131,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 
 Expected: `OK`, one test passed.
 
-- [ ] **Step 5: Run the complete visualizer regression file**
+- [x] **Step 5: Run the complete visualizer regression file**
 
 Run:
 
@@ -142,13 +142,13 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Verify the behavior in the browser**
+- [x] **Step 6: Verify the behavior in the browser**
 
 Reload the graph page, invoke `selectMemory(nodes.getIds()[0])`, dispatch a wheel event on `#graph-canvas canvas` before the 400 ms focus finishes, then sample `network.getScale()` through at least 500 ms. Expected: the scale changes on wheel and remains at that value after the focus animation's former completion time. Record the scale immediately before wheel, immediately after wheel, and after 500 ms.
 
 Also capture the scale, call `closeSidebar()`, wait 500 ms, and capture it again. Expected: both values are equal.
 
-- [ ] **Step 7: Inspect and commit the implementation**
+- [x] **Step 7: Inspect and commit the implementation**
 
 ```bash
 git diff --check
