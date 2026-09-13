@@ -1,4 +1,5 @@
 import json
+import gzip
 import http.client
 import importlib.util
 import tempfile
@@ -71,6 +72,65 @@ class ServerSecurityTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(b"safe index", body)
         self.assertNotIn("Access-Control-Allow-Origin", headers)
+
+    def test_gzip_negotiation_honors_explicit_zero_and_sets_real_length(self):
+        payload = ("compressible javascript;" * 100).encode()
+        (self.static_dir / "asset.js").write_bytes(payload)
+
+        status, headers, body = self.request(
+            "GET", "/static/asset.js", headers={"Accept-Encoding": "br, *;q=0.5"}
+        )
+        refused_status, refused_headers, refused_body = self.request(
+            "GET", "/static/asset.js",
+            headers={"Accept-Encoding": "*;q=1, gzip;q=0"},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual("gzip", headers["Content-Encoding"])
+        self.assertEqual("Accept-Encoding", headers["Vary"])
+        self.assertEqual(len(body), int(headers["Content-Length"]))
+        self.assertEqual(payload, gzip.decompress(body))
+        self.assertEqual(200, refused_status)
+        self.assertNotIn("Content-Encoding", refused_headers)
+        self.assertEqual("Accept-Encoding", refused_headers["Vary"])
+        self.assertEqual(payload, refused_body)
+
+    def test_static_etag_revalidates_and_changes_with_file_content(self):
+        asset = self.static_dir / "asset.js"
+        asset.write_text("const version = 1;")
+
+        status, headers, body = self.request("GET", "/static/asset.js")
+        etag = headers["ETag"]
+        unchanged_status, unchanged_headers, unchanged_body = self.request(
+            "GET", "/static/asset.js", headers={"If-None-Match": f'W/{etag}, "other"'}
+        )
+        asset.write_text("const version = 2;")
+        changed_status, changed_headers, changed_body = self.request(
+            "GET", "/static/asset.js", headers={"If-None-Match": etag}
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual(b"const version = 1;", body)
+        self.assertEqual("private, no-cache", headers["Cache-Control"])
+        self.assertEqual(304, unchanged_status)
+        self.assertEqual(etag, unchanged_headers["ETag"])
+        self.assertEqual(b"", unchanged_body)
+        self.assertEqual(200, changed_status)
+        self.assertNotEqual(etag, changed_headers["ETag"])
+        self.assertEqual(b"const version = 2;", changed_body)
+
+    def test_json_is_gzipped_but_not_persistently_cached(self):
+        with patch.object(server, "get_stats", return_value={"values": list(range(100))}):
+            status, headers, body = self.request(
+                "GET", "/api/stats", headers={"Accept-Encoding": "gzip"}
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual("gzip", headers["Content-Encoding"])
+        self.assertEqual("Accept-Encoding", headers["Vary"])
+        self.assertEqual("no-store", headers["Cache-Control"])
+        self.assertEqual(len(body), int(headers["Content-Length"]))
+        self.assertEqual({"values": list(range(100))}, json.loads(gzip.decompress(body)))
 
     def test_post_rejects_non_local_host(self):
         status, _headers, body = self.request(

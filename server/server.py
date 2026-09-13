@@ -12,6 +12,8 @@ Usage:
 from __future__ import annotations
 
 import json
+import gzip
+import hashlib
 import os
 import re
 import sys
@@ -58,6 +60,46 @@ HEAVY_WORK_WAIT_SECONDS = 0.25
 SEARCH_MAX_RESULTS = 50
 SEARCH_MAX_DIAGNOSTIC_ROWS = 50
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _accepts_gzip(value: str | None) -> bool:
+    """Return whether gzip is acceptable, honoring explicit q=0 over `*`."""
+    if not value:
+        return False
+    exact: list[float] = []
+    wildcard: list[float] = []
+    for item in value.split(","):
+        parts = [part.strip() for part in item.split(";")]
+        coding = parts[0].lower()
+        quality = 1.0
+        for parameter in parts[1:]:
+            name, separator, raw = parameter.partition("=")
+            if separator and name.strip().lower() == "q":
+                try:
+                    quality = float(raw.strip())
+                except ValueError:
+                    quality = 0.0
+                if not 0.0 <= quality <= 1.0:
+                    quality = 0.0
+        if coding == "gzip":
+            exact.append(quality)
+        elif coding == "*":
+            wildcard.append(quality)
+    if exact:
+        return max(exact) > 0.0
+    return bool(wildcard and max(wildcard) > 0.0)
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """Apply weak comparison for If-None-Match on GET/HEAD representations."""
+    if not if_none_match:
+        return False
+    expected = etag.removeprefix("W/")
+    for candidate in if_none_match.split(","):
+        candidate = candidate.strip()
+        if candidate == "*" or candidate.removeprefix("W/") == expected:
+            return True
+    return False
 
 _CANONICAL_ID_RE = re.compile(
     r"(?:[0-9a-f]{8}-[0-9a-f]{3}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
@@ -2240,7 +2282,10 @@ class Handler(BaseHTTPRequestHandler):
         self, data: dict, status: int = 200, download: str = None,
         headers: dict[str, str] | None = None,
     ):
-        body = json.dumps(data, indent=2, default=str).encode("utf-8")
+        body = json.dumps(data, separators=(",", ":"), default=str).encode("utf-8")
+        use_gzip = _accepts_gzip(self.headers.get("Accept-Encoding"))
+        if use_gzip:
+            body = gzip.compress(body, compresslevel=6, mtime=0)
         self.send_response(status)
         if download:
             self.send_header("Content-Type", "application/json")
@@ -2249,6 +2294,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -2280,12 +2329,31 @@ class Handler(BaseHTTPRequestHandler):
         mime = mime or content_types.get(filepath.suffix, "application/octet-stream")
 
         body = filepath.read_bytes()
-        self.send_response(200)
+        compressible = (
+            mime.startswith("text/")
+            or mime.split(";", 1)[0] in {
+                "application/javascript", "application/json", "image/svg+xml",
+            }
+        )
+        use_gzip = compressible and _accepts_gzip(
+            self.headers.get("Accept-Encoding")
+        )
+        if use_gzip:
+            body = gzip.compress(body, compresslevel=6, mtime=0)
+        etag = f'"{hashlib.sha256(body).hexdigest()}"'
+        not_modified = _etag_matches(self.headers.get("If-None-Match"), etag)
+        self.send_response(304 if not_modified else 200)
         self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "private, no-cache")
+        self.send_header("Vary", "Accept-Encoding")
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
+        if not not_modified:
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if not not_modified:
+            self.wfile.write(body)
 
     def log_message(self, format, *args):
         """Suppress default logging — use our own."""

@@ -362,6 +362,12 @@ and projection calculations share two admission slots; a third request waits at
 most 250 ms, then receives `503` with `Retry-After: 1`. This keeps small routes
 responsive without claiming to reduce CPU-bound Python work.
 
+JSON and compressible static responses negotiate gzip, including explicit
+`gzip;q=0` refusal, and send `Vary: Accept-Encoding` plus the encoded body's real
+length. Memory JSON remains `Cache-Control: no-store`. Mutable static URLs use a
+representation-specific content `ETag` with `Cache-Control: private, no-cache`, so
+unchanged revalidation returns 304; they are deliberately not marked `immutable`.
+
 ```
 GET  /api/graph                         — whole corpus; `threshold`/`th` default 0.8, mutual top-8 semantic edges capped at 1,200
 GET  /api/stats                         — raw statistics

@@ -517,6 +517,14 @@ similarité sont les voisinages top-8 **mutuels**, puis plafonnées globalement 
 Ce budget ne concerne ni les relations déclarées ni les connecteurs de hubs. Tous
 les nœuds mémoire restent présents, y compris ceux sans vecteur exploitable.
 
+Le transport négocie gzip sur le JSON et les statiques compressibles. Une valeur
+explicite `gzip;q=0` l'emporte sur `*`; toutes les variantes portent
+`Vary: Accept-Encoding` et un `Content-Length` correspondant aux octets réellement
+envoyés. Le JSON mémoire reste `Cache-Control: no-store`. Les statiques non
+fingerprintés ont un ETag de représentation et `Cache-Control: private, no-cache` :
+ils peuvent être stockés puis revalidés (304 si inchangés), mais jamais marqués
+`immutable`. L'ETag n'évite pas le calcul serveur d'un graphe.
+
 ### Pitfall: Domain hubs mal groupés (catégorie DB ≠ label prefix)
 
 La fonction `_build_category_hub_graph()` dans `server.py` groupait les nodes par leur **préfixe de label** (Hermes, Bodycam, CrowdWhisper, etc.) au lieu de leur **catégorie DB** (tech, correction, fact, project, pattern). Conséquence : 19+ hubs avec des couleurs néon qui ne correspondaient pas aux couleurs des nœuds, rendant le graph visuellement incohérent.
