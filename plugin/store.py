@@ -2692,6 +2692,8 @@ class LanceDBStore:
             existing = self._get_by_id_raw(memory_id)
             if not existing:
                 return False
+            if set(tags) == set(existing.get("tags") or []):
+                return True
             self._table.update(
                 f"id = {_sql_literal(memory_id)}",
                 {"tags": json.dumps(tags), "updated_at": time.time()},
@@ -2722,6 +2724,8 @@ class LanceDBStore:
                     current_tags.update(add_tags)
                 if remove_tags:
                     current_tags.difference_update(remove_tags)
+                if current_tags == set(mem.get("tags") or []):
+                    continue
                 self._table.update(
                     f"id = {_sql_literal(mid)}",
                     {"tags": json.dumps(sorted(current_tags)), "updated_at": time.time()},
@@ -2735,6 +2739,8 @@ class LanceDBStore:
     @_serialized_mutation
     def rename_tag(self, old_name: str, new_name: str) -> int:
         """Rename a tag across all memories. Returns number of memories updated."""
+        if old_name == new_name:
+            return 0
         memories = self.get_all()
         updated = 0
         for m in memories:
@@ -2748,8 +2754,10 @@ class LanceDBStore:
                     tags = []
             if old_name in tags:
                 new_tags = [new_name if t == old_name else t for t in tags]
+                if set(new_tags) == set(tags):
+                    continue
                 self._table.update(
-                    f"id = '{m['id']}'",
+                    f"id = {_sql_literal(m['id'])}",
                     {"tags": json.dumps(new_tags), "updated_at": time.time()},
                 )
                 updated += 1
@@ -2798,8 +2806,10 @@ class LanceDBStore:
                 new_tags = set(tags)
                 new_tags.difference_update(source_set)
                 new_tags.add(target)
+                if new_tags == set(tags):
+                    continue
                 self._table.update(
-                    f"id = '{m['id']}'",
+                    f"id = {_sql_literal(m['id'])}",
                     {"tags": json.dumps(sorted(new_tags)), "updated_at": time.time()},
                 )
                 updated += 1
@@ -3166,6 +3176,8 @@ class LanceDBStore:
             existing = self._get_by_id_raw(memory_id)
             if not existing:
                 return False
+            if set(entities) == set(existing.get("entities") or []):
+                return True
             self._table.update(
                 f"id = {_sql_literal(memory_id)}",
                 {"entities": json.dumps(entities), "updated_at": time.time()},
