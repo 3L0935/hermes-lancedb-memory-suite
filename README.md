@@ -320,7 +320,9 @@ Grouping is switchable at any time: category hubs, entity hubs, or the raw embed
 
 ### Embeddings
 
-UMAP projection of every memory vector, next to a read-only local health inspection.
+On-demand UMAP projection of at most the first 500 stored rows (invalid vectors are
+omitted), next to a read-only local health inspection. The page reports whether that
+selection was truncated; opening the root page does not precompute the projection.
 
 ![Embeddings and local health](docs/screenshots/08-embedding-health.png)
 

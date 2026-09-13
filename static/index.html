@@ -196,6 +196,7 @@
             <span id="emb-neighbors-val" style="font-size:12px;color:var(--accent);">15</span></label>
             <label>Min dist <input type="range" id="emb-mindist" min="0.05" max="0.5" step="0.05" value="0.1" oninput="document.getElementById('emb-mindist-val').textContent=this.value;loadEmbedding()">
             <span id="emb-mindist-val" style="font-size:12px;color:var(--accent);">0.1</span></label>
+            <span id="projection-policy">On demand · First 500 stored rows · invalid vectors omitted</span>
           </div>
           <div id="emb-legend" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;"></div>
           <div class="scatter-container" id="emb-container">

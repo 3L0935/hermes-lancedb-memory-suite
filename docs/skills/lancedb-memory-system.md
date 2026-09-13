@@ -525,6 +525,14 @@ fingerprintés ont un ETag de représentation et `Cache-Control: private, no-cac
 ils peuvent être stockés puis revalidés (304 si inchangés), mais jamais marqués
 `immutable`. L'ETag n'évite pas le calcul serveur d'un graphe.
 
+La projection UMAP est strictement à la demande et considère les 500 premières
+lignes stockées; les vecteurs invalides sont omis. La réponse expose `budget` et
+`truncated`, repris dans l'UI. `umap-learn>=0.5,<0.6` est l'unique dépendance
+optionnelle assumée. Elle vit dans le `requirements.txt` du contexte Compose du
+Hub : un restart ne l'installe pas, il faut `docker compose build lancedb-viz`
+puis `docker compose up -d --force-recreate lancedb-viz` depuis
+`hermes-hub/services/lancedb-viz`.
+
 ### Pitfall: Domain hubs mal groupés (catégorie DB ≠ label prefix)
 
 La fonction `_build_category_hub_graph()` dans `server.py` groupait les nodes par leur **préfixe de label** (Hermes, Bodycam, CrowdWhisper, etc.) au lieu de leur **catégorie DB** (tech, correction, fact, project, pattern). Conséquence : 19+ hubs avec des couleurs néon qui ne correspondaient pas aux couleurs des nœuds, rendant le graph visuellement incohérent.

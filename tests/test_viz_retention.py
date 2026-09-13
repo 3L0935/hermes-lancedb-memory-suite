@@ -857,6 +857,10 @@ class VizRetentionTests(unittest.TestCase):
         self.assertIn("no_data", app)
         self.assertIn("projection_failed", app)
         self.assertIn("PROJECTION_MAX_POINTS = 500", store_source)
+        self.assertIn('id="projection-policy"', html)
+        self.assertIn("First 500 stored rows", html)
+        self.assertIn("projection.budget", app)
+        self.assertIn("projection.truncated", app)
 
     def test_container_requirements_cover_every_runtime_import(self):
         """The deployed image must ship what the imported store actually needs.
@@ -866,7 +870,7 @@ class VizRetentionTests(unittest.TestCase):
         scikit-learn, so /api/search failed with "No module named 'httpx'" in
         production while every unit test passed on the host venv.
         """
-        required = {"httpx", "scikit-learn"}
+        required = {"httpx", "scikit-learn", "umap-learn"}
         for requirements in (
             ROOT / "requirements.txt",
             Path("/home/elo/github/hermes-hub/services/lancedb-viz/requirements.txt"),

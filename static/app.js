@@ -557,7 +557,11 @@ async function loadEmbedding() {
       ctx.fillText('Not enough data (need 3+ memories)', canvas.width/2, canvas.height/2);
       setEl('emb-count', '0 points'); return;
     }
-    setEl('emb-count', points.length + ' points');
+    const budget = Number(projection.budget) || 500;
+    const sampleState = projection.truncated
+      ? ' · first ' + budget + ' stored rows sampled'
+      : ' · up to ' + budget + ' stored rows considered';
+    setEl('emb-count', points.length + ' points' + sampleState);
 
     const xs = points.map(p => p.x), ys = points.map(p => p.y);
     const xMin = Math.min(...xs), xMax = Math.max(...xs), yMin = Math.min(...ys), yMax = Math.max(...ys);
