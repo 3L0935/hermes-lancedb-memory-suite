@@ -713,6 +713,7 @@ def collect_health_diagnostics(
     *,
     backups_path: Path | None = None,
     pipeline: dict[str, Any],
+    implementation: dict[str, Any] | None = None,
     ollama_probe: Callable[[], dict[str, Any]],
     table_names: Iterable[str] = MAINTENANCE_TABLES,
 ) -> dict[str, Any]:
@@ -807,6 +808,7 @@ def collect_health_diagnostics(
         },
         "ollama": ollama,
         "pipeline": dict(pipeline),
+        "implementation": dict(implementation or {}),
         "maintenance_estimate": {
             "current_bytes": disk_bytes,
             "backup_bytes": disk_bytes,

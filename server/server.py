@@ -1427,6 +1427,12 @@ def api_get_health() -> dict:
                 "metric": "cosine",
             },
             ollama_probe=lambda: probe_ollama(embed_url),
+            implementation={
+                "store_sha256": str(
+                    getattr(store_module, "STORE_IMPLEMENTATION_SHA256", "unknown")
+                ),
+                "store_module": str(getattr(store_module, "__file__", "unknown")),
+            },
         )
     except Exception as error:
         return {"error": str(error), "read_only": True, "tables": {}}

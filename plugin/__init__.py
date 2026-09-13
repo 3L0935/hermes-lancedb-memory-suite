@@ -15,7 +15,11 @@ from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
 from .memory_contract import MemoryContractError, MemoryPatch, MemoryWrite
-from .store import LanceDBStore, MemoryEmbeddingError  # noqa: F401 — used in initialize()
+from .store import (  # noqa: F401 — used in initialize()
+    LanceDBStore,
+    MemoryEmbeddingError,
+    STORE_IMPLEMENTATION_SHA256,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +412,11 @@ class LanceDBMemoryProvider(MemoryProvider):
             _os.environ["LANCE_EMBED_MODEL"] = embed_model
 
         self._store = LanceDBStore(db_path)
+        logger.info(
+            "LanceDB store loaded sha256=%s module=%s",
+            STORE_IMPLEMENTATION_SHA256,
+            Path(__file__).resolve(),
+        )
 
     def system_prompt_block(self) -> str:
         if not self._store:

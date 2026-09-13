@@ -7,6 +7,7 @@ Embeddings via Ollama (nomic-embed-text), local only.
 from __future__ import annotations
 
 import json
+import hashlib
 from collections import deque
 from contextlib import contextmanager
 import fcntl
@@ -34,6 +35,7 @@ from .memory_contract import (
 )
 
 logger = logging.getLogger(__name__)
+STORE_IMPLEMENTATION_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 # Calibrated on audit/repro/retrieval-questions-calibration.json only.
 # No-answer extrema at first calibration: cosine distance 0.3072, BM25 12.7287.
