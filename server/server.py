@@ -1586,7 +1586,7 @@ def api_compact(data: dict) -> dict:
         _compaction_lock.release()
 
 
-def api_get_clusters(threshold: float = 0.6, min_size: int = 2) -> list:
+def api_get_clusters(threshold: float = 0.6, min_size: int = 2) -> dict:
     """GET /api/clusters — semantic clusters."""
     try:
         store = _get_store()

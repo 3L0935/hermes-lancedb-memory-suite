@@ -633,10 +633,26 @@ async function loadClusters() {
   el.innerHTML = '<div class="loading"><div class="spinner"></div><div>Clustering...</div></div>';
   try {
     const r = await fetch(API + '/clusters?threshold=' + threshold + '&min_size=' + minSize);
-    let clusters = await r.json();
-    if (clusters && !Array.isArray(clusters) && Array.isArray(clusters.clusters)) clusters = clusters.clusters;
+    const payload = await r.json();
+    const diagnostics = !Array.isArray(payload) ? (payload.diagnostics || {}) : {};
+    let clusters = Array.isArray(payload) ? payload : payload.clusters;
     if (!Array.isArray(clusters)) clusters = [];
-    setEl('cl-count', clusters.length + ' clusters');
+    const largestShare = Number(diagnostics.largest_group_share) || 0;
+    const clusterCoverage = Number(diagnostics.cluster_coverage) || 0;
+    const vectorCoverage = Number(diagnostics.vector_coverage) || 0;
+    const isolated = Number(diagnostics.isolated_memories) || 0;
+    const diagnosticEl = document.getElementById('cluster-diagnostics');
+    if (diagnosticEl) {
+      const warning = diagnostics.low_discrimination
+        ? '<strong>Low discrimination:</strong> one group contains ' + Math.round(largestShare * 100) + '% of vectorized memories. Cluster count alone is not evidence of useful structure. · '
+        : '';
+      diagnosticEl.innerHTML = warning +
+        'Largest group ' + Math.round(largestShare * 100) + '% · ' +
+        'cluster coverage ' + Math.round(clusterCoverage * 100) + '% · ' +
+        'vector coverage ' + Math.round(vectorCoverage * 100) + '% · ' +
+        isolated + ' isolated/unvectorized';
+    }
+    setEl('cl-count', clusters.length + ' displayed clusters');
     if (!clusters.length) { el.innerHTML = '<div class="empty-state">No clusters</div>'; return; }
     const clColors = ['#3b82f6','#f59e0b','#22c55e','#a78bfa','#f43f5e','#6366f1','#14b8a6','#e879f9','#fb923c','#64748b'];
     el.innerHTML = clusters.map((c, i) => {

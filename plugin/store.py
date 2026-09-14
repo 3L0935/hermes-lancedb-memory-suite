@@ -58,6 +58,8 @@ SEARCH_CALIBRATED_ENGINE = "lancedb==0.34.0"
 SEARCH_NEIGHBOR_BUDGET = 5
 SEARCH_DIAGNOSTIC_HISTORY_LIMIT = 100
 PROJECTION_MAX_POINTS = 500
+CLUSTER_RANDOM_SEED = 42
+CLUSTER_LOW_DISCRIMINATION_SHARE = 0.80
 
 _MUTATION_LOCKS: dict[str, threading.RLock] = {}
 _MUTATION_LOCKS_GUARD = threading.Lock()
@@ -3071,9 +3073,11 @@ class LanceDBStore:
                 "budget": PROJECTION_MAX_POINTS,
             }
 
-    def get_clusters(self, threshold: float = 0.6, min_size: int = 2) -> list[dict]:
-        """Find semantic clusters using label propagation on vector similarity."""
-        raw = self._get_all_raw()
+    def get_clusters(self, threshold: float = 0.6, min_size: int = 2) -> dict:
+        """Find stable semantic clusters and report their discrimination limits."""
+        raw = sorted(
+            self._get_all_raw(), key=lambda row: str(row.get("id") or "")
+        )
         vectors = []
         mems = []
         for r in raw:
@@ -3087,8 +3091,24 @@ class LanceDBStore:
             vectors.append(v / norm)
             mems.append(r)
 
+        total_memories = len(raw)
         if len(vectors) < 3:
-            return []
+            return {
+                "clusters": [],
+                "diagnostics": {
+                    "total_memories": total_memories,
+                    "vector_memories": len(vectors),
+                    "vector_coverage": round(
+                        len(vectors) / total_memories, 3
+                    ) if total_memories else 0.0,
+                    "clustered_memories": 0,
+                    "cluster_coverage": 0.0,
+                    "isolated_memories": total_memories,
+                    "largest_group_size": 0,
+                    "largest_group_share": 0.0,
+                    "low_discrimination": False,
+                },
+            }
 
         vec_matrix = np.array(vectors, dtype=np.float32)
         sim_matrix = np.dot(vec_matrix, vec_matrix.T)
@@ -3108,21 +3128,26 @@ class LanceDBStore:
         max_iter = 20
         it = 0
         import random
+        rng = random.Random(CLUSTER_RANDOM_SEED)
         while changed and it < max_iter:
             changed = False
             it += 1
             order = list(range(n))
-            random.shuffle(order)
+            rng.shuffle(order)
             for i in order:
                 if not adj[i]:
                     continue
                 neighbor_labels = {}
-                for nb in adj[i]:
+                for nb in sorted(adj[i]):
                     lbl = labels[nb]
                     neighbor_labels[lbl] = neighbor_labels.get(lbl, 0) + 1
                 if not neighbor_labels:
                     continue
-                best_label = max(neighbor_labels, key=neighbor_labels.get)
+                best_count = max(neighbor_labels.values())
+                best_label = min(
+                    label for label, count in neighbor_labels.items()
+                    if count == best_count
+                )
                 if labels[i] != best_label:
                     labels[i] = best_label
                     changed = True
@@ -3155,14 +3180,38 @@ class LanceDBStore:
             member_vecs = np.array([vectors[idx] for idx in indices], dtype=np.float32)
             centroid = member_vecs.mean(axis=0)
             clusters.append({
-                "id": lbl,
+                "id": str(mems[indices[0]]["id"]),
                 "size": len(members),
                 "members": members,
                 "centroid": {"x": float(centroid[0]), "y": float(centroid[1])},
             })
 
-        clusters.sort(key=lambda c: -c["size"])
-        return clusters
+        clusters.sort(key=lambda cluster: (-cluster["size"], cluster["id"]))
+        largest_group_size = max((len(indices) for indices in groups.values()), default=0)
+        largest_group_share = (
+            largest_group_size / len(mems) if mems else 0.0
+        )
+        clustered_memories = sum(cluster["size"] for cluster in clusters)
+        graph_isolates = sum(not neighbors for neighbors in adj.values())
+        diagnostics = {
+            "total_memories": total_memories,
+            "vector_memories": len(mems),
+            "vector_coverage": round(
+                len(mems) / total_memories, 3
+            ) if total_memories else 0.0,
+            "clustered_memories": clustered_memories,
+            "cluster_coverage": round(
+                clustered_memories / total_memories, 3
+            ) if total_memories else 0.0,
+            "isolated_memories": graph_isolates + (total_memories - len(mems)),
+            "largest_group_size": largest_group_size,
+            "largest_group_share": round(largest_group_share, 3),
+            "low_discrimination": (
+                largest_group_size >= min_size
+                and largest_group_share >= CLUSTER_LOW_DISCRIMINATION_SHARE
+            ),
+        }
+        return {"clusters": clusters, "diagnostics": diagnostics}
 
     # -----------------------------------------------------------------------
     # Linking

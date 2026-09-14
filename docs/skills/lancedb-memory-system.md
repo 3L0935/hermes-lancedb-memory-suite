@@ -533,6 +533,15 @@ Hub : un restart ne l'installe pas, il faut `docker compose build lancedb-viz`
 puis `docker compose up -d --force-recreate lancedb-viz` depuis
 `hermes-hub/services/lancedb-viz`.
 
+`get_clusters()` trie les mémoires par ID et utilise un `random.Random(42)` local;
+les autres threads et consommateurs de `random` ne peuvent donc plus modifier le
+résultat. Les ex æquo de labels sont aussi résolus par ordre stable. L'endpoint
+renvoie `{clusters, diagnostics}` avec couverture vectorielle, couverture des
+groupes affichés, mémoires isolées/non vectorisées, taille et part du plus grand
+groupe. `low_discrimination=true` à partir de 80 % signale honnêtement un groupe
+géant; le nombre de groupes n'est pas traité comme une preuve de qualité et l'UI
+ne recommande aucun seuil de production.
+
 ### Pitfall: Domain hubs mal groupés (catégorie DB ≠ label prefix)
 
 La fonction `_build_category_hub_graph()` dans `server.py` groupait les nodes par leur **préfixe de label** (Hermes, Bodycam, CrowdWhisper, etc.) au lieu de leur **catégorie DB** (tech, correction, fact, project, pattern). Conséquence : 19+ hubs avec des couleurs néon qui ne correspondaient pas aux couleurs des nœuds, rendant le graph visuellement incohérent.

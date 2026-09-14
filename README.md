@@ -352,7 +352,7 @@ selection was truncated; opening the root page does not precompute the projectio
 | **Conflicts** | same-subject claims that contradict each other, open and resolved |
 | **Review** | bounded read-only consistency inbox: format drift, contradictions, broken references |
 | **Embeddings** | UMAP 2D projection of all vectors + local health diagnostics |
-| **Clusters** | semantic clusters, with threshold and minimum-size controls |
+| **Clusters** | deterministic semantic clusters plus largest-group concentration, coverage, isolated-memory count, and a low-discrimination warning |
 | **Stale** | old and low-quality memories, the cleanup candidates |
 | **Graph** | whole corpus by default, embedding links, optional typed-relation overlay, hub grouping, freshness halo, tier filter |
 
@@ -385,7 +385,7 @@ GET  /api/duplicates                    — duplicate groups (`threshold`)
 GET  /api/projection                    — UMAP projection (`n_neighbors`, `min_dist`)
 GET  /api/health                        — read-only storage and dependency diagnostics
 GET  /api/maintenance/compact/plan      — read-only thresholds, compaction, and backup plan
-GET  /api/clusters                      — semantic clusters (`threshold`, `min_size`)
+GET  /api/clusters                      — stable semantic clusters + diagnostics (`threshold`, `min_size`)
 GET  /api/stale                         — stale memories (`days`, `quality_max`)
 GET  /api/conflicts                     — contradiction ledger (`status`, `memory_id`, `limit`)
 GET  /api/review                        — bounded read-only review inbox

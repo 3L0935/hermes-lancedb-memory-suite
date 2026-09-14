@@ -2,6 +2,7 @@ import tempfile
 import threading
 import unittest
 import builtins
+import random
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -43,6 +44,63 @@ def storage_snapshot(db_path: Path) -> dict[str, int]:
 
 
 class StoreRetentionTests(unittest.TestCase):
+    def test_clusters_are_stable_local_and_report_honest_coverage(self):
+        rows = [
+            {"id": "dddddddd-ddd", "content": "Fact:Invalid state=active",
+             "category": "fact", "vector": [0.0, 0.0]},
+            {"id": "cccccccc-ccc", "content": "Fact:Isolated state=active",
+             "category": "fact", "vector": [0.0, 1.0]},
+            {"id": "bbbbbbbb-bbb", "content": "Fact:PairB state=active",
+             "category": "fact", "vector": [1.0, 0.0]},
+            {"id": "aaaaaaaa-aaa", "content": "Fact:PairA state=active",
+             "category": "fact", "vector": [1.0, 0.0]},
+        ]
+
+        class AlternatingStore:
+            calls = 0
+
+            def _get_all_raw(self):
+                self.calls += 1
+                return list(reversed(rows)) if self.calls % 2 else list(rows)
+
+        store = AlternatingStore()
+        random.seed(991)
+        random_state = random.getstate()
+        first = LanceDBStore.get_clusters(store, threshold=0.8, min_size=2)
+        self.assertEqual(random_state, random.getstate())
+        second = LanceDBStore.get_clusters(store, threshold=0.8, min_size=2)
+
+        self.assertEqual(first, second)
+        self.assertEqual(1, len(first["clusters"]))
+        self.assertEqual(
+            ["aaaaaaaa-aaa", "bbbbbbbb-bbb"],
+            [member["id"] for member in first["clusters"][0]["members"]],
+        )
+        self.assertEqual({
+            "total_memories": 4,
+            "vector_memories": 3,
+            "vector_coverage": 0.75,
+            "clustered_memories": 2,
+            "cluster_coverage": 0.5,
+            "isolated_memories": 2,
+            "largest_group_size": 2,
+            "largest_group_share": 0.667,
+            "low_discrimination": False,
+        }, first["diagnostics"])
+
+    def test_clusters_flag_one_group_that_swallows_the_corpus(self):
+        rows = [
+            {"id": f"{index:08x}-aaa", "content": f"Fact:N{index} state=active",
+             "category": "fact", "vector": [1.0, 0.0]}
+            for index in range(5)
+        ]
+        store = type("Store", (), {"_get_all_raw": lambda self: rows})()
+
+        result = LanceDBStore.get_clusters(store, threshold=0.6, min_size=2)
+
+        self.assertEqual(1.0, result["diagnostics"]["largest_group_share"])
+        self.assertTrue(result["diagnostics"]["low_discrimination"])
+        self.assertEqual(0, result["diagnostics"]["isolated_memories"])
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = LanceDBStore(Path(self.tmp.name))

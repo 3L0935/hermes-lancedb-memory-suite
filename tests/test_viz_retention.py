@@ -862,6 +862,17 @@ class VizRetentionTests(unittest.TestCase):
         self.assertIn("projection.budget", app)
         self.assertIn("projection.truncated", app)
 
+    def test_cluster_ui_reports_concentration_coverage_and_isolation(self):
+        html = (ROOT / "static" / "index.html").read_text()
+        app = (ROOT / "static" / "app.js").read_text()
+
+        self.assertIn('id="cluster-diagnostics"', html)
+        self.assertIn("largest_group_share", app)
+        self.assertIn("cluster_coverage", app)
+        self.assertIn("isolated_memories", app)
+        self.assertIn("low_discrimination", app)
+        self.assertIn("Low discrimination", app)
+
     def test_container_requirements_cover_every_runtime_import(self):
         """The deployed image must ship what the imported store actually needs.
 
