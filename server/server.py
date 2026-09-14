@@ -745,7 +745,8 @@ def get_graph_data(
                 edge.setdefault("kind", "semantic")
 
         by_id = {str(n["id"]): n for n in nodes}
-        declared: list[dict] = []
+        resolved_declared: list[dict] = []
+        available_relation_types: set[str] = set()
         if show_declared:
             try:
                 for relation in store.get_typed_edges(include_unresolved=True):
@@ -753,18 +754,29 @@ def get_graph_data(
                     target = str(relation.get("to") or "")
                     if source not in by_id or target not in by_id:
                         continue
-                    declared.append({
+                    relation_type = str(
+                        relation.get("relation_type") or "linked"
+                    )
+                    available_relation_types.add(relation_type)
+                    resolved_declared.append({
                         "from": source,
                         "to": target,
                         "kind": "declared",
-                        "relation_type": str(relation.get("relation_type") or "linked"),
-                        "label": str(relation.get("relation_type") or "linked"),
+                        "relation_type": relation_type,
+                        "label": relation_type,
                         "directed": True,
                     })
-                    by_id[source]["has_declared_relations"] = True
-                    by_id[target]["has_declared_relations"] = True
             except Exception:
                 pass
+        declared = [
+            edge for edge in resolved_declared
+            if relation_types is None
+            or edge["relation_type"] in relation_types
+        ]
+        for edge in declared:
+            by_id[edge["from"]]["has_declared_relations"] = True
+            by_id[edge["to"]]["has_declared_relations"] = True
+        hidden_by_relation_filter = len(resolved_declared) - len(declared)
         # Older builders/tests may omit the kind on semantic edges.
         for edge in edges:
             edge.setdefault("kind", "semantic")
@@ -799,9 +811,8 @@ def get_graph_data(
                 },
             },
             "hidden_neighbor_count": 0,
-            "available_relation_types": sorted({
-                str(e.get("relation_type") or "") for e in declared
-            } - {""}),
+            "hidden_by_relation_filter": hidden_by_relation_filter,
+            "available_relation_types": sorted(available_relation_types),
             "budgets": {"nodes": len(nodes), "edges": len(edges),
                         "semantic_candidates": GRAPH_MAX_SEMANTIC_NEIGHBORS},
         }

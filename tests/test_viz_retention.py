@@ -625,6 +625,67 @@ class VizRetentionTests(unittest.TestCase):
         self.assertEqual(1, len(overlay_view["typed_edges"]))
         self.assertEqual(["depends"], overlay_view["available_relation_types"])
 
+    def test_global_graph_filters_resolved_declared_relations_by_type(self):
+        nodes = [
+            {"id": "aaaaaaaa-aaa"},
+            {"id": "bbbbbbbb-bbb"},
+            {"id": "cccccccc-ccc"},
+        ]
+        typed = [
+            {
+                "from": nodes[0]["id"],
+                "to": nodes[1]["id"],
+                "relation_type": "depends",
+            },
+            {
+                "from": nodes[0]["id"],
+                "to": nodes[2]["id"],
+                "relation_type": "extends",
+            },
+            {
+                "from": nodes[0]["id"],
+                "to": "",
+                "relation_type": "part_of",
+            },
+        ]
+        store = SimpleNamespace(
+            get_typed_edges=lambda include_unresolved=False: typed
+        )
+
+        with patch.object(
+            server,
+            "_compute_vector_data",
+            return_value=(nodes, [], {}, None, [], 0.8),
+        ), patch.object(server, "_get_store", return_value=store):
+            all_relations = server.get_graph_data(
+                threshold=0.8, show_declared=True
+            )
+            depends_only = server.get_graph_data(
+                threshold=0.8,
+                show_declared=True,
+                relation_types={"depends"},
+            )
+
+        self.assertEqual(2, len(all_relations["typed_edges"]))
+        self.assertEqual(
+            ["depends", "extends"],
+            all_relations["available_relation_types"],
+        )
+        self.assertEqual(0, all_relations["hidden_by_relation_filter"])
+        self.assertEqual(
+            ["depends"],
+            [edge["relation_type"] for edge in depends_only["typed_edges"]],
+        )
+        self.assertEqual(
+            ["depends", "extends"],
+            depends_only["available_relation_types"],
+        )
+        self.assertEqual(1, depends_only["hidden_by_relation_filter"])
+        self.assertEqual(
+            1,
+            depends_only["edge_policy"]["declared"]["returned_edges"],
+        )
+
     def test_global_graph_keeps_all_nodes_and_bounds_mutual_semantic_edges(self):
         rows = [
             {
