@@ -765,9 +765,10 @@ async function doSemanticSearch() {
     lastSearchDiagnostics = data;
     panel.innerHTML = data.results.map(r => {
       const cat = catLabels[r.category] || r.category || 'Fact';
+      const metric = formatSearchMetric(r, data.diagnostics?.score_semantics);
       return '<div class="search-item">' +
         '<span class="s-cat cat-' + safeCategory(r.category) + '">' + escapeHtml(cat) + '</span>' +
-        '<span class="s-meta">score: ' + (r._distance ? r._distance.toFixed(2) : '0.00') + '</span>' +
+        (metric ? '<span class="s-meta">' + metric + '</span>' : '') +
         '<span class="s-why"><button class="why-btn" title="Why this result?" onclick="event.stopPropagation();explainResult(\'' + escapeJsString(r.id) + '\')">?</button></span>' +
         '<div class="s-content" onclick="selectMemory(\'' + escapeJsString(r.id) + '\')">' + escapeHtml((r.content || '').substring(0, 140)) + '</div></div>';
     }).join('');
