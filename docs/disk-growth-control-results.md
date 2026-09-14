@@ -24,10 +24,21 @@ audit/repro/measure-write-amplification.py
 
 The engine gave identical lexical recall before and after the outer writer-batch
 refresh for the synthetic rare token. The calibrated retrieval tests also pass.
-Metadata writes still create a replacement FTS generation even when text is
-unchanged, so the implementation keeps one refresh at the outer writer boundary.
-Skipping it based only on text equality is not supported by the installed API and
-has no demonstrated correctness or storage advantage.
+
+**Superseded (2026-09-14):** the earlier conclusion here was that skipping the
+writer-path refresh "has no demonstrated correctness or storage advantage". That is
+no longer accurate. Measured on
+`lancedb==0.34.0`: one writer batch cost one replacement index generation, one
+table version, and ~5.2 KB of index files (8 batches produced 8 generations,
+41,644 index bytes, on a disposable database), and a row added without a refresh
+is still returned by a normal `query_type="fts"` search while
+`num_unindexed_rows` is non-zero. Incumbent BM25 scores are also invariant under
+deferred coverage (max absolute shift 0.0 across 20 frozen questions) and move
+only when an index is materialized (max 0.7442), so deferring the refresh is the
+more conservative state for the calibrated 12.80 admission gate. The writer now
+reuses any compatible FTS index and rebuilds partial coverage only on an explicit
+`refresh_fts_index()` or through maintenance `optimize()`. See
+`docs/fts-index-rotation-investigation.md` for the dated measurements.
 
 ## Batching and cleanup
 
