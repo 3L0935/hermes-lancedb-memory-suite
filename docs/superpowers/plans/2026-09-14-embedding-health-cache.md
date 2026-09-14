@@ -166,7 +166,7 @@ Run:
 ```bash
 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
   /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
-  tests/test_viz_retention.py -k embedding -q
+  tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
 Expected: FAIL because the cache script and restore/render functions do not exist.
@@ -236,7 +236,7 @@ Run:
 node --test tests/static_embedding_health_cache.test.cjs
 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
   /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
-  tests/test_viz_retention.py -k embedding -q
+  tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
 Expected: all selected tests pass.
@@ -271,7 +271,7 @@ Run:
 ```bash
 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
   /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
-  tests/test_viz_retention.py -k embedding -q
+  tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
 Expected: FAIL because `.projection-policy` is not defined.

@@ -24,7 +24,10 @@ function switchPage(name) {
   else if (name === 'tags') loadTags();
   else if (name === 'duplicates') loadDuplicates();
   else if (name === 'conflicts') loadConflicts();
-  else if (name === 'embedding') loadEmbedding();
+  else if (name === 'embedding') {
+    restoreCachedHealth();
+    loadEmbedding();
+  }
   else if (name === 'clusters') loadClusters();
   else if (name === 'stale') loadStale();
   else if (name === 'graph') {
@@ -428,6 +431,36 @@ function shortPath(path) {
   return parts.slice(-2).join('/');
 }
 
+function renderHealth(data, checkedAt, cacheStored) {
+  const container = document.getElementById('health-container');
+  const tableRows = Object.entries(data.tables || {}).map(([name, table]) =>
+    '<tr><td>' + escapeHtml(name) + '</td><td>' + escapeHtml(table.state) + '</td><td>' + escapeHtml(table.rows ?? '—') + '</td><td>' + escapeHtml(table.current_version ?? '—') + ' / ' + escapeHtml(table.versions ?? '—') + '</td><td>' + escapeHtml(table.fragments ?? '—') + '</td></tr>'
+  ).join('');
+  const fts = data.fts || {};
+  const ollama = data.ollama || {};
+  const storage = data.storage || {};
+  const estimate = data.maintenance_estimate || {};
+  const lastMaintenance = data.last_maintenance || {};
+  const pipeline = data.pipeline || {};
+  const checkedLabel = new Date(checkedAt).toLocaleString();
+  const cacheLabel = cacheStored ? 'Cached locally' : 'Browser cache unavailable';
+  container.innerHTML =
+    '<div class="health-card health-last-check"><span>Last check</span><b>' + escapeHtml(checkedLabel) + '</b><small>' + escapeHtml(cacheLabel) + '</small></div>' +
+    '<div class="health-card"><span>Pipeline</span><b>' + escapeHtml(pipeline.model || 'unknown') + '</b><small>' + escapeHtml((pipeline.dimension || '?') + 'd · contract v' + (pipeline.version || '?') + ' · ' + (pipeline.metric || '?')) + '</small></div>' +
+    '<div class="health-card"><span>FTS</span><b class="health-' + escapeHtmlAttr(fts.state || 'missing') + '">' + escapeHtml(fts.state || 'missing') + '</b><small>' + escapeHtml(fts.num_unindexed_rows ?? 'unknown') + ' unindexed rows</small></div>' +
+    '<div class="health-card"><span>Database</span><b>' + formatBytes(storage.database_bytes) + '</b><small>' + formatBytes(storage.active_bytes_estimate) + ' active estimate · ' + formatBytes(storage.reclaimable_bytes_estimate) + ' reclaimable estimate</small></div>' +
+    '<div class="health-card"><span>Backups</span><b>' + formatBytes(storage.managed_backup_bytes) + '</b><small>' + formatBytes(storage.total_footprint_bytes) + ' database + managed backups</small></div>' +
+    '<div class="health-card"><span>Ollama</span><b class="health-' + escapeHtmlAttr(ollama.state || 'error') + '">' + escapeHtml(ollama.state || 'error') + '</b><small>' + escapeHtml(ollama.error || ('HTTP ' + (ollama.status || '?'))) + '</small></div>' +
+    '<div class="health-card"><span>Last maintenance</span><b>' + escapeHtml(lastMaintenance.last_success_at || 'Never') + '</b><small>' + (lastMaintenance.last_success_at ? formatBytes(lastMaintenance.actual_reclaimed_bytes) + ' reclaimed · ' + formatBytes(lastMaintenance.backup_created_bytes) + ' backup' : 'No successful run recorded') + '</small></div>' +
+    '<div class="health-table"><table class="data-table"><thead><tr><th>Table</th><th>State</th><th>Rows</th><th>Version / history</th><th>Fragments</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' +
+    '<div class="health-estimate">Before maintenance: backup ' + formatBytes(estimate.backup_bytes) + ' · estimated DB after ' + formatBytes(estimate.estimated_after_bytes) + ' · reclaimable ' + formatBytes(estimate.estimated_reclaimable_bytes) + ' (estimate only)</div>';
+}
+
+function restoreCachedHealth() {
+  const record = readHealthCache(window.localStorage);
+  if (record) renderHealth(record.health, record.checked_at, true);
+}
+
 async function loadHealth() {
   const button = document.getElementById('health-scan');
   const container = document.getElementById('health-container');
@@ -436,24 +469,9 @@ async function loadHealth() {
   try {
     const data = await fetch(API + '/health').then(response => response.json());
     if (data.error) throw new Error(data.error);
-    const tableRows = Object.entries(data.tables || {}).map(([name, table]) =>
-      '<tr><td>' + escapeHtml(name) + '</td><td>' + escapeHtml(table.state) + '</td><td>' + escapeHtml(table.rows ?? '—') + '</td><td>' + escapeHtml(table.current_version ?? '—') + ' / ' + escapeHtml(table.versions ?? '—') + '</td><td>' + escapeHtml(table.fragments ?? '—') + '</td></tr>'
-    ).join('');
-    const fts = data.fts || {};
-    const ollama = data.ollama || {};
-    const storage = data.storage || {};
-    const estimate = data.maintenance_estimate || {};
-    const lastMaintenance = data.last_maintenance || {};
-    const pipeline = data.pipeline || {};
-    container.innerHTML =
-      '<div class="health-card"><span>Pipeline</span><b>' + escapeHtml(pipeline.model || 'unknown') + '</b><small>' + escapeHtml((pipeline.dimension || '?') + 'd · contract v' + (pipeline.version || '?') + ' · ' + (pipeline.metric || '?')) + '</small></div>' +
-      '<div class="health-card"><span>FTS</span><b class="health-' + escapeHtmlAttr(fts.state || 'missing') + '">' + escapeHtml(fts.state || 'missing') + '</b><small>' + escapeHtml(fts.num_unindexed_rows ?? 'unknown') + ' unindexed rows</small></div>' +
-      '<div class="health-card"><span>Database</span><b>' + formatBytes(storage.database_bytes) + '</b><small>' + formatBytes(storage.active_bytes_estimate) + ' active estimate · ' + formatBytes(storage.reclaimable_bytes_estimate) + ' reclaimable estimate</small></div>' +
-      '<div class="health-card"><span>Backups</span><b>' + formatBytes(storage.managed_backup_bytes) + '</b><small>' + formatBytes(storage.total_footprint_bytes) + ' database + managed backups</small></div>' +
-      '<div class="health-card"><span>Ollama</span><b class="health-' + escapeHtmlAttr(ollama.state || 'error') + '">' + escapeHtml(ollama.state || 'error') + '</b><small>' + escapeHtml(ollama.error || ('HTTP ' + (ollama.status || '?'))) + '</small></div>' +
-      '<div class="health-card"><span>Last maintenance</span><b>' + escapeHtml(lastMaintenance.last_success_at || 'Never') + '</b><small>' + (lastMaintenance.last_success_at ? formatBytes(lastMaintenance.actual_reclaimed_bytes) + ' reclaimed · ' + formatBytes(lastMaintenance.backup_created_bytes) + ' backup' : 'No successful run recorded') + '</small></div>' +
-      '<div class="health-table"><table class="data-table"><thead><tr><th>Table</th><th>State</th><th>Rows</th><th>Version / history</th><th>Fragments</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' +
-      '<div class="health-estimate">Before maintenance: backup ' + formatBytes(estimate.backup_bytes) + ' · estimated DB after ' + formatBytes(estimate.estimated_after_bytes) + ' · reclaimable ' + formatBytes(estimate.estimated_reclaimable_bytes) + ' (estimate only)</div>';
+    const checkedAt = new Date().toISOString();
+    const record = writeHealthCache(window.localStorage, data, checkedAt);
+    renderHealth(data, checkedAt, Boolean(record));
   } catch(e) {
     container.innerHTML = '<div class="error-state">Health inspection failed: ' + escapeHtml(e.message) + '</div>';
   } finally {

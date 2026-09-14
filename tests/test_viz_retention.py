@@ -930,7 +930,18 @@ class VizRetentionTests(unittest.TestCase):
 
         self.assertIn('id="health-scan"', html)
         self.assertIn('id="health-container"', html)
+        self.assertIn('/static/embedding-health-cache.js?1', html)
         self.assertIn("async function loadHealth()", app)
+        self.assertIn("function renderHealth(data, checkedAt, cacheStored)", app)
+        self.assertIn("function restoreCachedHealth()", app)
+        self.assertRegex(
+            app,
+            r"name === 'embedding'[\s\S]+restoreCachedHealth\(\)[\s\S]+loadEmbedding\(\)",
+        )
+        self.assertIn("writeHealthCache(window.localStorage", app)
+        self.assertIn("readHealthCache(window.localStorage", app)
+        self.assertIn("Last check", app)
+        self.assertIn("Cached locally", app)
         self.assertIn("dependency_missing", app)
         self.assertIn("no_data", app)
         self.assertIn("projection_failed", app)
