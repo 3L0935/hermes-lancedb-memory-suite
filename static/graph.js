@@ -12,6 +12,7 @@ let highlightedTypedEdges = new Set(); // node IDs highlighted for typed relatio
 let graphIntersectionVisible = false;
 const MAX_EDITOR_FACTS = 12;
 const MAX_EDITOR_RELATIONS = 20;
+const GRAPH_LAYOUT_RANDOM_SEED = 20260913;
 
 // Cat colors — neon cyberpunk, dark cores with blazing borders
 const catColors = {
@@ -195,7 +196,7 @@ function renderGraph() {
         stabilization: { iterations: 150, fit: true },
       },
       interaction: { hover: true, zoomView: true, dragView: true },
-      layout: { improvedLayout: true },
+      layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: true },
     });
 
     network.on('click', function(params) {

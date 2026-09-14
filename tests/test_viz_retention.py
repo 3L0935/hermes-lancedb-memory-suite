@@ -807,6 +807,18 @@ class VizRetentionTests(unittest.TestCase):
         )
         self.assertIn('/static/graph.js?7', html)
 
+    def test_graph_layout_has_a_fixed_seed_without_disabling_drag_or_physics(self):
+        graph = (ROOT / "static" / "graph.js").read_text()
+
+        self.assertIn("const GRAPH_LAYOUT_RANDOM_SEED = 20260913;", graph)
+        self.assertIn(
+            "layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: true }",
+            graph,
+        )
+        self.assertIn("stabilization: { iterations: 150, fit: true }", graph)
+        self.assertIn("dragView: true", graph)
+        self.assertIn("network.startSimulation()", graph)
+
     def test_health_diagnostics_separate_useful_history_fts_and_ollama_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "lancedb"
