@@ -113,8 +113,9 @@ def test_bulk_tag_commits_all_changed_rows_once(tmp_path, monkeypatch):
     result = store.bulk_tag(ids, add_tags=["batched"])
 
     assert result == {"updated": 2, "errors": []}
-    # One complete-row merge and one writer-batch FTS refresh.
-    assert int(store._table.version) == version_before + 2
+    # One complete-row merge; the writer batch no longer adds an FTS generation
+    # because partial coverage stays queryable until an explicit refresh.
+    assert int(store._table.version) == version_before + 1
     after_rows = {row["id"]: row for row in store._get_all_raw()}
     for memory_id in ids:
         assert after_rows[memory_id]["tags"] == ["batched"]
@@ -154,7 +155,8 @@ def test_global_tag_mutations_use_one_complete_row_merge(
 
     assert operation(store) == 2
 
-    assert int(store._table.version) == version_before + 2
+    # One complete-row merge; FTS coverage is deferred, so no extra generation.
+    assert int(store._table.version) == version_before + 1
     after_rows = {row["id"]: row for row in store._get_all_raw()}
     for memory_id in ids:
         assert set(after_rows[memory_id]["tags"]) == expected_tags

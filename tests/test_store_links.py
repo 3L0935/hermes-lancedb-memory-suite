@@ -210,8 +210,9 @@ def test_delete_has_bounded_memories_commits_independent_of_link_fanout(store):
 
     assert store.delete(memory_id(10))
 
-    # One delete, one complete-row link merge, one writer-batch FTS refresh.
-    assert int(store._table.version) == version_before + 3
+    # One delete and one complete-row link merge; FTS coverage is deferred, so
+    # the writer batch no longer adds a third generation.
+    assert int(store._table.version) == version_before + 2
     after = non_link_rows(store)
     assert memory_id(10) not in after
     assert after == {key: value for key, value in before.items() if key != memory_id(10)}
@@ -259,5 +260,6 @@ def test_delete_commit_budget_does_not_scale_with_unrelated_rows(
 
     assert candidate.delete(memory_id(0))
 
-    assert int(candidate._table.version) == version_before + 3
+    # One delete and one complete-row link merge; FTS coverage is deferred.
+    assert int(candidate._table.version) == version_before + 2
     assert link_sets(candidate) == expected_links(candidate)

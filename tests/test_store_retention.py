@@ -212,32 +212,145 @@ class StoreRetentionTests(unittest.TestCase):
 
         self.assertEqual(before, storage_snapshot(Path(self.tmp.name)))
 
-    def test_writer_batch_refreshes_fts_once_and_preserves_new_row_recall(self):
+    def test_writer_batch_defers_fts_refresh_and_preserves_new_row_recall(self):
         self.add("Project:Baseline state=active [Tier=2]")
         before = storage_snapshot(Path(self.tmp.name))
+        before_index = next(
+            item for item in self.store._table.list_indices()
+            if item.index_type == "FTS" and item.columns == ["content"]
+        )
 
         with self.store.write_batch():
             first_id = self.add("Project:Alpha ultrararetoken=enabled [Tier=2]")
             self.add("Project:Beta state=active [Tier=2]")
-            unindexed_rows = self.store._table.search(
-                "ultrararetoken", query_type="fts"
-            ).limit(10).to_list()
 
         after = storage_snapshot(Path(self.tmp.name))
-        indexed_rows = self.store._table.search(
+        unindexed_rows = self.store._table.search(
             "ultrararetoken", query_type="fts"
         ).limit(10).to_list()
-        index = next(
+        deferred_index = next(
             item for item in self.store._table.list_indices()
             if item.index_type == "FTS" and item.columns == ["content"]
         )
 
         self.assertIn(first_id, [row["id"] for row in unindexed_rows])
-        self.assertIn(first_id, [row["id"] for row in indexed_rows])
         self.assertGreater(float(unindexed_rows[0]["_score"]), 0.0)
-        self.assertGreater(float(indexed_rows[0]["_score"]), 0.0)
+        self.assertEqual(before_index.index_uuid, deferred_index.index_uuid)
+        self.assertGreater(deferred_index.num_unindexed_rows, 0)
+        self.assertEqual(0, after["index_directories"] - before["index_directories"])
+
+        self.assertTrue(self.store.refresh_fts_index())
+        refreshed = storage_snapshot(Path(self.tmp.name))
+        refreshed_index = next(
+            item for item in self.store._table.list_indices()
+            if item.index_type == "FTS" and item.columns == ["content"]
+        )
+        self.assertEqual(0, refreshed_index.num_unindexed_rows)
+        self.assertNotEqual(before_index.index_uuid, refreshed_index.index_uuid)
+        self.assertEqual(1, refreshed["index_directories"] - after["index_directories"])
+
+    def test_writer_creates_fts_index_when_missing(self):
+        self.assertEqual([], list(self.store._table.list_indices()))
+
+        memory_id = self.add("Project:Alpha missingindexprobe=enabled [Tier=2]")
+        index = next(
+            item for item in self.store._table.list_indices()
+            if item.index_type == "FTS" and item.columns == ["content"]
+        )
+        rows = self.store._table.search(
+            "missingindexprobe", query_type="fts"
+        ).limit(10).to_list()
+
         self.assertEqual(0, index.num_unindexed_rows)
-        self.assertEqual(1, after["index_directories"] - before["index_directories"])
+        self.assertIn(memory_id, [row["id"] for row in rows])
+
+    def test_deferred_coverage_freezes_incumbent_bm25_scores(self):
+        """Partial coverage must not move the calibrated BM25 scale.
+
+        The 12.80 admission gate is a single global constant, so a writer batch
+        that silently rescored already-indexed rows would invalidate it. LanceDB
+        scores indexed postings only, so a deferred batch leaves every incumbent
+        score bit-identical while an explicit refresh is free to move them.
+        """
+        queries = [
+            "state active baseline",
+            "Project alpha beta",
+            "memory retention policy",
+        ]
+        self.add("Project:Baseline state=active retention policy [Tier=2]")
+        self.add("Project:Gamma memory retention policy [Tier=2]")
+        self.store.refresh_fts_index()
+
+        def scores_by_id(query):
+            return {
+                row["id"]: round(float(row["_score"]), 9)
+                for row in self.store._table.search(query, query_type="fts")
+                .limit(20).to_list()
+            }
+
+        before = {query: scores_by_id(query) for query in queries}
+        self.assertTrue(any(before.values()))
+
+        with self.store.write_batch():
+            for index in range(8):
+                self.add(
+                    f"Project:Deferred{index} state=active payload=extra "
+                    f"[Tier=2]"
+                )
+
+        index_state = next(
+            item for item in self.store._table.list_indices()
+            if item.index_type == "FTS" and item.columns == ["content"]
+        )
+        self.assertGreater(index_state.num_unindexed_rows, 0)
+
+        deferred = {query: scores_by_id(query) for query in queries}
+        for query, incumbent_scores in before.items():
+            for memory_id, score in incumbent_scores.items():
+                self.assertEqual(score, deferred[query][memory_id])
+
+        # A refresh legitimately moves scores: the freeze is the guarantee.
+        self.assertTrue(self.store.refresh_fts_index())
+        refreshed = {query: scores_by_id(query) for query in queries}
+        self.assertTrue(any(refreshed.values()))
+
+    def test_unindexed_row_is_scored_on_the_same_scale_as_an_indexed_row(self):
+        """Deferring coverage must not cost an unindexed new row its recall.
+
+        A new memory is scored by LanceDB's unindexed flat-search branch until a
+        refresh materializes it. If that branch scored on a different scale, a
+        freshly written memory could sit under the 12.80 admission gate and be
+        invisible to hybrid retrieval, which would be a silent data loss.
+        """
+        query = "quarztoken spindle calibration"
+        self.add("Project:Existing state=active [Tier=2]")
+        self.store.refresh_fts_index()
+
+        with self.store.write_batch():
+            new_id = self.add(
+                "Project:Fresh quarztoken spindle calibration=enabled [Tier=2]"
+            )
+
+        index_state = next(
+            item for item in self.store._table.list_indices()
+            if item.index_type == "FTS" and item.columns == ["content"]
+        )
+        self.assertGreater(index_state.num_unindexed_rows, 0)
+
+        def score_of(memory_id):
+            rows = self.store._table.search(query, query_type="fts").limit(20).to_list()
+            return next(
+                (round(float(row["_score"]), 9) for row in rows
+                 if row["id"] == memory_id),
+                None,
+            )
+
+        deferred_score = score_of(new_id)
+        self.assertIsNotNone(deferred_score)
+        self.assertGreater(deferred_score, 0.0)
+
+        self.assertTrue(self.store.refresh_fts_index())
+        self.assertEqual(deferred_score, score_of(new_id))
 
     def test_direct_raw_add_is_fenced_from_cron_style_bypass(self):
         with self.assertRaises(MemoryContractError) as caught:

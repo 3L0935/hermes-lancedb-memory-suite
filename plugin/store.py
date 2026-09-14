@@ -601,19 +601,28 @@ class LanceDBStore:
         except Exception:
             return self._db.create_table(self._table_name, schema=self._get_schema())
 
-    def _ensure_fts_index(self, tbl):
-        """Create or refresh content FTS explicitly on the writer path."""
+    def _ensure_fts_index(self, tbl, *, refresh: bool = False):
+        """Ensure content FTS exists, rebuilding partial coverage only on request."""
         try:
             row_count = tbl.count_rows()
             for index in tbl.list_indices():
                 if (
                     str(index.index_type).upper() == "FTS"
                     and list(index.columns) == ["content"]
-                    and index.num_indexed_rows == row_count
-                    and index.num_unindexed_rows == 0
                 ):
-                    logger.info("FTS index already current on content column")
-                    return True
+                    fully_indexed = (
+                        index.num_indexed_rows == row_count
+                        and index.num_unindexed_rows == 0
+                    )
+                    if not refresh or fully_indexed:
+                        if fully_indexed:
+                            logger.info("FTS index already current on content column")
+                        else:
+                            logger.info(
+                                "FTS index refresh deferred with %s unindexed rows",
+                                index.num_unindexed_rows,
+                            )
+                        return True
             try:
                 from lancedb.index import FTS
                 tbl.create_index("content", config=FTS(), replace=True)
@@ -622,13 +631,13 @@ class LanceDBStore:
             logger.info("FTS index ready on content column")
             return True
         except Exception as e:
-            logger.warning("FTS index refresh failed after memory write: %s", e)
+            logger.warning("FTS index ensure/refresh failed after memory write: %s", e)
             return False
 
     def refresh_fts_index(self) -> bool:
         """Explicitly refresh content FTS as one cooperating writer operation."""
         with self.write_batch():
-            return self._ensure_fts_index(self._table)
+            return self._ensure_fts_index(self._table, refresh=True)
 
     @property
     def mutation_lock_path(self) -> Path:
@@ -637,12 +646,12 @@ class LanceDBStore:
 
     @contextmanager
     def write_batch(self):
-        """Serialize a writer batch and refresh FTS once after memory changes.
+        """Serialize a writer batch and ensure FTS remains available.
 
         Nested public mutations share the outer batch. The table version is the
-        source of truth, so conflict-only operations do not rebuild the memories
-        index and partial commits still receive a refresh before their exception
-        is propagated.
+        source of truth, so conflict-only operations do not inspect the memories
+        index. Partial FTS coverage remains queryable and is materialized by an
+        explicit refresh or periodic maintenance.
         """
         with self._mutation_lock:
             outermost = self._mutation_depth == 0
