@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?6">
+<link rel="stylesheet" href="/static/style.css?7">
 </head>
 <body>
 
@@ -257,17 +257,21 @@
             <option value="category_hub">By category (hubs)</option>
             <option value="entity_hub">By entity (hubs)</option>
           </select>
-          <label title="Overlay the declared typed relations on top of the embedding links">
-            <input type="checkbox" id="show-declared" onchange="closeSidebar();loadGraph()"> Typed relations
-          </label>
-          <select id="relation-filter">
-            <option value="">All declared relations</option>
-            <option value="part_of">part_of</option><option value="depends">depends</option>
-            <option value="requires">requires</option><option value="runs_on">runs_on</option>
-            <option value="connects_to">connects_to</option><option value="uses">uses</option>
-            <option value="extends">extends</option><option value="supersedes">supersedes</option>
-            <option value="invalidates">invalidates</option><option value="contradicts">contradicts</option>
-          </select>
+          <div id="typed-relation-control" data-family="off">
+            <label class="typed-relation-toggle" title="Overlay declared typed relations on the embedding links">
+              <span class="relation-control-dot" aria-hidden="true"></span>
+              <input type="checkbox" id="show-declared" onchange="closeSidebar();loadGraph()">
+              <span>Typed</span>
+            </label>
+            <select id="relation-filter" disabled aria-label="Declared relation type">
+              <option value="">All declared relations</option>
+              <option value="part_of">part_of</option><option value="depends">depends</option>
+              <option value="requires">requires</option><option value="runs_on">runs_on</option>
+              <option value="connects_to">connects_to</option><option value="uses">uses</option>
+              <option value="extends">extends</option><option value="supersedes">supersedes</option>
+              <option value="invalidates">invalidates</option><option value="contradicts">contradicts</option>
+            </select>
+          </div>
           <label>Threshold
             <input type="range" id="threshold-slider" min="0.3" max="1" step="0.05" value="0.8"
               oninput="document.getElementById('threshold-val').textContent=this.value"
@@ -309,7 +313,7 @@
 <script src="/static/http.js?1"></script>
 <script src="/static/search-metric.js?1"></script>
 <script src="/static/graph-relations.js?1"></script>
-<script src="/static/graph.js?7"></script>
+<script src="/static/graph.js?8"></script>
 <script src="/static/app.js?6"></script>
 
 </body>

@@ -97,12 +97,18 @@ async function loadGraph() {
   showGraphLoadState('Building memory graph...');
   const threshold = document.getElementById('threshold-slider')?.value || 0.8;
   const clusterMode = document.getElementById('cluster-mode')?.value || 'raw';
-  const showDeclared = document.getElementById('show-declared')?.checked ? '1' : '0';
+  const showDeclared = Boolean(document.getElementById('show-declared')?.checked);
+  const relationType = document.getElementById('relation-filter')?.value || '';
+  syncRelationControl();
   // The graph is ALWAYS the whole corpus. It is never reloaded as a per-memory
   // sub-graph: that replaced the overview with a handful of nodes on every click
   // and left no way back. Selecting a memory opens the sidebar over this graph.
-  const query = '/api/graph?threshold=' + threshold +
-    '&cluster=' + encodeURIComponent(clusterMode) + '&show_declared=' + showDeclared;
+  const query = buildGraphUrl({
+    threshold,
+    clusterMode,
+    showDeclared,
+    relationType,
+  });
   try {
     const nextData = await fetchJsonWithBusyRetry(query, {
       onBusy: ({retryAfterMs}) => {
@@ -151,16 +157,41 @@ function renderGraph() {
   const visNodes = (allData.nodes || []).map(restingNodeStyle);
 
   const visEdges = (allData.edges || []).map(e => {
-    if (e.kind === 'declared') return {
-      from: e.from, to: e.to, label: e.label || '', kind: 'declared',
-      color: {color:'#f59e0b', highlight:'#fbbf24', hover:'#fbbf24'}, width:2.2,
-      dashes:false, font:{color:'#fbbf24', size:9, strokeWidth:0},
-      arrows:{to:{enabled:true, scaleFactor:0.55}}, smooth:{type:'curvedCW', roundness:0.12},
-    };
+    if (e.kind === 'declared') {
+      const relationType = e.relation_type || e.label || 'linked';
+      const visual = relationVisual(relationType);
+      return {
+        from: e.from, to: e.to, label: e.label || '', kind: 'declared',
+        color: {
+          color: visual.color,
+          highlight: visual.color,
+          hover: visual.color,
+          opacity: 0.72,
+        },
+        width: 1.35,
+        dashes: false,
+        font: {
+          color: visual.color,
+          size: 8,
+          strokeWidth: 2,
+          strokeColor: '#080811',
+          background: 'rgba(8,8,17,0.72)',
+          align: 'middle',
+        },
+        arrows: {to: {enabled: true, scaleFactor: 0.38}},
+        smooth: {type: 'curvedCW', roundness: 0.08},
+      };
+    }
     return {
       from: e.from, to: e.to, label: e.label || '', kind: 'semantic',
-      color: {color:'#3a3a6a', highlight:'#818cf8', hover:'#a5b4fc'}, width:1.3,
-      dashes:[4,5], font:{color:'#64748b', size:9, strokeWidth:0},
+      color: {
+        color: '#3a3a6a',
+        highlight: '#818cf8',
+        hover: '#a5b4fc',
+        opacity: 0.42,
+      },
+      width: 0.85,
+      dashes: [3,6], font: {color:'#64748b', size:9, strokeWidth:0},
       arrows:{to:{enabled:false}}, smooth:{type:'curvedCW', roundness:0.15},
     };
   });
@@ -439,13 +470,14 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
   });
 
   if (relatedItems.length) {
-    relatedHtml = '<div class="detail-links-list"><div class="detail-meta" style="color:#a78bfa;">Related (' + relatedItems.length + ')</div>';
+    relatedHtml = '<div class="detail-links-list"><div class="detail-meta">Related (' + relatedItems.length + ')</div>';
     relatedItems.forEach(item => {
       const typeClass = item.type === 'shared' ? 'typed-tag-shared' : 'typed-tag';
-      relatedHtml += '<div class="detail-link-item typed-link" onclick="openSidebar(\'' + escapeJsString(item.id) + '\')">' +
+      const relationColor = item.type === 'shared' ? '#66eeff' : relationVisual(item.type).color;
+      relatedHtml += '<div class="detail-link-item typed-link" style="--relation-color:' + relationColor + '" onclick="openSidebar(\'' + escapeJsString(item.id) + '\')">' +
         '<span class="cat-badge cat-' + safeCategory(item.cat) + '" style="font-size:9px;padding:1px 6px;margin-bottom:0">' + escapeHtml(catLabels[safeCategory(item.cat)] || '?') + '</span>' +
         '<span class="' + typeClass + '">' + escapeHtml(item.type) + '</span>' +
-        (item.dir ? ' <span style="color:#a78bfa;font-size:10px;">' + escapeHtml(item.dir) + '</span>' : '') +
+        (item.dir ? ' <span class="typed-arrow">' + escapeHtml(item.dir) + '</span>' : '') +
         ' ' + escapeHtml(item.label) +
         '</div>';
     });
@@ -730,8 +762,20 @@ function updateBudgetLabel(matchCount, filtered) {
   if (declared.returned_edges) text += ' · ' + declared.returned_edges + ' declared';
   if (hubs.returned_edges) text += ' · ' + hubs.returned_edges + ' hub links';
   if (filtered) text += ' · ' + matchCount + ' match';
-  if (hidden || byFilter) text += ' · ' + hidden + ' hidden by budget, ' + byFilter + ' by relation filter';
+  if (hidden) text += ' · ' + hidden + ' hidden by budget';
+  if (byFilter) text += ' · ' + byFilter + ' hidden by relation filter';
   el.textContent = text;
+}
+
+function syncRelationControl() {
+  const control = document.getElementById('typed-relation-control');
+  const checkbox = document.getElementById('show-declared');
+  const select = document.getElementById('relation-filter');
+  if (!control || !checkbox || !select) return;
+  const state = relationControlState(checkbox.checked, select.value);
+  select.disabled = state.disabled;
+  control.dataset.family = state.family;
+  control.style.setProperty('--relation-accent', state.accent);
 }
 
 function countEntities(nodesArr) {

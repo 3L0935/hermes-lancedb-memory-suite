@@ -819,8 +819,12 @@ class VizRetentionTests(unittest.TestCase):
         self.assertIn('id="hidden-neighbor-count"', html)
         self.assertIn('id="cluster-mode"', html)
         self.assertIn('id="show-declared"', html)
+        self.assertIn('id="typed-relation-control"', html)
+        self.assertIn('/static/graph-relations.js?1', html)
         self.assertIn("kind: 'declared'", graph)
         self.assertIn("kind: 'semantic'", graph)
+        self.assertIn("relationVisual(relationType)", graph)
+        self.assertIn("--relation-color", graph)
         self.assertIn("new IntersectionObserver", graph)
         self.assertIn("network.stopSimulation()", graph)
         self.assertIn("pauseGraphPhysics", app)
@@ -828,7 +832,8 @@ class VizRetentionTests(unittest.TestCase):
         # No per-memory graph query survives, and selection stays local.
         load_graph = re.search(r"async function loadGraph\(\)[\s\S]*?\n}", graph).group(0)
         self.assertNotIn("memory_id=", load_graph)
-        self.assertIn("cluster=", load_graph)
+        self.assertIn("clusterMode", load_graph)
+        self.assertIn("buildGraphUrl({", load_graph)
         self.assertNotIn("loadNeighborhood", graph)
         self.assertIn("function selectMemory(", graph)
 
@@ -866,7 +871,7 @@ class VizRetentionTests(unittest.TestCase):
             "addEventListener('wheel', cancelCameraAnimation, { capture: true, passive: true })",
             graph,
         )
-        self.assertIn('/static/graph.js?7', html)
+        self.assertIn('/static/graph.js?8', html)
 
     def test_graph_layout_has_a_fixed_seed_without_disabling_drag_or_physics(self):
         graph = (ROOT / "static" / "graph.js").read_text()
