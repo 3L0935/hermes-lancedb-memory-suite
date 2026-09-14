@@ -85,8 +85,15 @@ function restingNodeStyle(n) {
 // Load + Render
 // ═══════════════════════════════════════════════
 
+function showGraphLoadState(message, spinning = true) {
+  const loading = document.getElementById('loading');
+  loading.style.display = 'block';
+  loading.querySelector('.spinner').style.display = spinning ? 'block' : 'none';
+  document.getElementById('graph-loading-message').textContent = message;
+}
+
 async function loadGraph() {
-  document.getElementById('loading').style.display = 'block';
+  showGraphLoadState('Building memory graph...');
   const threshold = document.getElementById('threshold-slider')?.value || 0.8;
   const clusterMode = document.getElementById('cluster-mode')?.value || 'raw';
   const showDeclared = document.getElementById('show-declared')?.checked ? '1' : '0';
@@ -96,8 +103,12 @@ async function loadGraph() {
   const query = '/api/graph?threshold=' + threshold +
     '&cluster=' + encodeURIComponent(clusterMode) + '&show_declared=' + showDeclared;
   try {
-    const resp = await fetch(query);
-    allData = await resp.json();
+    const nextData = await fetchJsonWithBusyRetry(query, {
+      onBusy: ({retryAfterMs}) => {
+        showGraphLoadState('Server busy. Retrying in ' + (retryAfterMs / 1000) + ' s...');
+      },
+    });
+    allData = nextData;
     renderGraph();
     if (selectedNodeId) {
       if (allData.nodes?.some(node => node.id === selectedNodeId)) highlightTypedRelations(selectedNodeId);
@@ -105,7 +116,9 @@ async function loadGraph() {
     }
   } catch (e) {
     console.error('Failed to load graph:', e);
-    document.getElementById('loading').innerHTML = 'Load error. Check server.';
+    showGraphLoadState(e instanceof BusyHttpError
+      ? e.message
+      : 'Graph request failed: ' + e.message, false);
   }
 }
 

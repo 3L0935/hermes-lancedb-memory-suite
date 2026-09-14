@@ -538,8 +538,15 @@ async function loadEmbedding() {
   setEl('emb-count', 'Loading...');
 
   try {
-    const r = await fetch(API + '/projection?n_neighbors=' + nNeighbors + '&min_dist=' + minDist);
-    const projection = await r.json();
+    const projection = await fetchJsonWithBusyRetry(
+      API + '/projection?n_neighbors=' + nNeighbors + '&min_dist=' + minDist,
+      {
+        onBusy: ({retryAfterMs}) => setEl(
+          'emb-count',
+          'Server busy. Retrying in ' + (retryAfterMs / 1000) + ' s...',
+        ),
+      },
+    );
     const stateMessages = {
       dependency_missing: 'Projection unavailable: umap-learn is not installed.',
       no_data: 'No projection: at least 3 valid embeddings are required.',
@@ -602,8 +609,12 @@ async function loadEmbedding() {
       for (const pt of pointData) { if ((mx-pt.x)**2 + (my-pt.y)**2 < 100) { showMemoryDetail(pt.id); return; } }
     };
   } catch(e) {
-    ctx.fillStyle = '#64748b'; ctx.font = '12px Fira Sans'; ctx.textAlign = 'center';
-    ctx.fillText('Error: ' + e.message, canvas.width/2, canvas.height/2);
+    setEl(
+      'emb-count',
+      e instanceof BusyHttpError
+        ? e.message
+        : 'Projection request failed: ' + e.message,
+    );
   }
 }
 
