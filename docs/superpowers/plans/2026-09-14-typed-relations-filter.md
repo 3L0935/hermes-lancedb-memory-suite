@@ -59,7 +59,7 @@ def test_global_graph_filters_resolved_declared_relations_by_type(self):
 
 - [ ] **Step 2: Run the focused test and verify it fails**
 
-Run: `pytest -q tests/test_viz_retention.py -k global_graph_filters_resolved_declared_relations_by_type`
+Run: `PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_viz_retention.py -k global_graph_filters_resolved_declared_relations_by_type`
 
 Expected: FAIL because the global overview ignores `relation_types` and omits `hidden_by_relation_filter`.
 
@@ -104,7 +104,7 @@ Return `sorted(available_relation_types)` and `hidden_by_relation_filter` in the
 
 - [ ] **Step 4: Run graph regression tests**
 
-Run: `pytest -q tests/test_viz_retention.py -k graph`
+Run: `PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_viz_retention.py -k graph`
 
 Expected: PASS.
 
@@ -236,7 +236,7 @@ Add `<script src="/static/graph-relations.js?1"></script>` immediately before th
 
 - [ ] **Step 5: Run all static JavaScript tests**
 
-Run: `pytest -q tests/test_static_javascript.py`
+Run: `PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_static_javascript.py`
 
 Expected: PASS, including the new Node test discovered by `tests/test_static_javascript.py`.
 
@@ -269,7 +269,7 @@ self.assertIn("--relation-color", graph)
 
 - [ ] **Step 2: Run the focused UI contract test and verify it fails**
 
-Run: `pytest -q tests/test_viz_retention.py -k graph_ui_selects_a_memory`
+Run: `PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_viz_retention.py -k graph_ui_selects_a_memory`
 
 Expected: FAIL because the grouped control and helper integration are not present.
 
@@ -308,9 +308,9 @@ Add CSS for a 29px joined dark control, its status dot, enabled accent, disabled
 Run:
 
 ```bash
-pytest -q tests/test_viz_retention.py -k graph
-pytest -q tests/test_static_javascript.py
-pytest -q
+PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_viz_retention.py -k graph
+PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_static_javascript.py
+PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q
 ```
 
 Expected: all commands PASS.
