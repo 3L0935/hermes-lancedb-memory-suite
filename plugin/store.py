@@ -2428,7 +2428,13 @@ class LanceDBStore:
 
     def _search_lexical(self, query: str, top_k: int = 10,
                         category: str | None = None) -> list[dict]:
-        """Run BM25-only retrieval, with a deterministic substring fallback."""
+        """Return explicit best-effort BM25 matches without an admission gate.
+
+        This is a caller-selected text-ranking contract, not a safe substitute
+        for hybrid retrieval when embeddings are unavailable. The BM25 score
+        distributions of weak and legitimate lexical matches overlap, so the
+        embedding-failure path must abstain instead of calling this method.
+        """
         self._fresh()
         try:
             base = self._table.search(query, query_type="fts").limit(top_k)
@@ -2604,10 +2610,10 @@ class LanceDBStore:
                         results = self._search_hybrid(query, seed_limit, category)
                         embedding_ms = max((float(row.get("embedding_ms", 0.0)) for row in results), default=0.0)
                     except MemoryEmbeddingError:
-                        results = self._search_lexical(query, seed_limit, category)
-                        route = "lexical"
+                        results = []
                         degraded = True
                         degraded_reason = "embedding_unavailable"
+                        abstention_reason = "embedding_unavailable"
                 for memory in results:
                     memory.setdefault("retrieval_source", "direct")
                     memory["search_mode"] = route
@@ -2653,6 +2659,8 @@ class LanceDBStore:
                 "neighbor_budget": min(max(int(neighbor_budget), 0), SEARCH_NEIGHBOR_BUDGET),
                 "history_limit": SEARCH_DIAGNOSTIC_HISTORY_LIMIT,
                 "score_semantics": "rrf_rank_not_probability",
+                "lexical_policy": "explicit_best_effort_unfiltered",
+                "embedding_failure_policy": "abstain",
                 **engine_calibration_status(),
                 **relation_diagnostics,
             }

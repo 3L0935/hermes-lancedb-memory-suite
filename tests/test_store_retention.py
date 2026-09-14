@@ -596,19 +596,47 @@ class StoreRetentionTests(unittest.TestCase):
 
         self.assertEqual([], results)
 
-    def test_hybrid_embedding_failure_degrades_to_explicit_lexical_results(self):
-        memory_id = self.add("Project:Alpha state=active [Tier=2]")
+    def test_semantic_embedding_failure_abstains_without_lexical_fallback(self):
+        self.add("Project:Alpha state=active [Tier=2]")
         self.store._embed = lambda _query: np.zeros(768, dtype=np.float32)
 
+        for mode in ("hybrid", "graph"):
+            with self.subTest(mode=mode), patch.object(
+                self.store, "_search_lexical", wraps=self.store._search_lexical
+            ) as lexical:
+                outcome = self.store.search_with_diagnostics(
+                    "Project Alpha", top_k=5, mode=mode, diagnostics=True
+                )
+
+            lexical.assert_not_called()
+            self.assertEqual([], outcome["results"])
+            self.assertTrue(outcome["abstained"])
+            self.assertTrue(outcome["degraded"])
+            self.assertEqual("embedding_unavailable", outcome["degraded_reason"])
+            self.assertEqual("embedding_unavailable", outcome["abstention_reason"])
+            self.assertEqual(mode, outcome["route"])
+            self.assertEqual(
+                "abstain", outcome["diagnostics"]["embedding_failure_policy"]
+            )
+            self.assertNotIn("query", outcome)
+
+    def test_explicit_lexical_mode_remains_best_effort_without_embedding(self):
+        memory_id = self.add("Project:Alpha state=active [Tier=2]")
+        self.store._embed = lambda _query: (_ for _ in ()).throw(
+            AssertionError("explicit lexical mode must not embed")
+        )
+
         outcome = self.store.search_with_diagnostics(
-            "Project Alpha", top_k=5, mode="hybrid", diagnostics=True
+            "Project Alpha", top_k=5, mode="lexical", diagnostics=True
         )
 
         self.assertEqual([memory_id], [row["id"] for row in outcome["results"]])
-        self.assertTrue(outcome["degraded"])
-        self.assertEqual("embedding_unavailable", outcome["degraded_reason"])
+        self.assertFalse(outcome["degraded"])
         self.assertEqual("lexical", outcome["route"])
-        self.assertNotIn("query", outcome)
+        self.assertEqual(
+            "explicit_best_effort_unfiltered",
+            outcome["diagnostics"]["lexical_policy"],
+        )
 
     def test_unrelated_hybrid_query_abstains_below_calibrated_evidence(self):
         self.add("Project:Alpha state=active [Tier=2]")

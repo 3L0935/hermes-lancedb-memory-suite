@@ -60,7 +60,8 @@ _SEARCH_SCHEMA = {
     "description": (
         "Observable local search over stored memories. RRF ranks hybrid candidates; "
         "calibrated cosine/BM25 evidence decides whether to abstain. "
-        "Embedding failures degrade explicitly to lexical retrieval. "
+        "Embedding failures abstain instead of silently returning unfiltered lexical noise; "
+        "caller-selected lexical mode remains best-effort text ranking. "
         "Quality is durable utility, freshness is computed separately at read time, "
         "and declared one-hop relations include their type and direction. "
         "Use this before answering about the user's projects, preferences, "

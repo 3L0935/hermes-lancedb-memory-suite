@@ -257,6 +257,15 @@ score BM25 est `>= SEARCH_MIN_BM25_SCORE` (`12.80`) **ou** si sa distance cosine
 est `<= SEARCH_MAX_COSINE_DISTANCE` (`0.30`). Si aucun candidat ne franchit un
 seuil, la recherche s'abstient (`abstained=true`, `below_calibrated_evidence`).
 
+Explicit lexical mode is best-effort text ranking and does not use this gate:
+the BM25 score distributions of weak and legitimate matches overlap. It is
+therefore never used as an implicit fallback. If embedding fails in hybrid or
+graph mode, retrieval abstains with `degraded=true`,
+`degraded_reason=embedding_unavailable`, and
+`abstention_reason=embedding_unavailable`. Diagnostics expose
+`lexical_policy=explicit_best_effort_unfiltered` and
+`embedding_failure_policy=abstain`.
+
 Le score BM25 dépend de la version du moteur : mêmes lignes, même requête et
 même code ont donné `12.774338` avec `lancedb==0.34.0` et `14.397717` avec
 0.38.0. Le pin `lancedb==0.34.0` doit rester aligné dans le repo, le venv hôte
