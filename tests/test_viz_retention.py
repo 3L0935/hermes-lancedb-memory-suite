@@ -926,6 +926,7 @@ class VizRetentionTests(unittest.TestCase):
     def test_projection_and_health_ui_distinguish_dependency_error_and_no_data(self):
         html = (ROOT / "static" / "index.html").read_text()
         app = (ROOT / "static" / "app.js").read_text()
+        css = (ROOT / "static" / "style.css").read_text()
         store_source = (ROOT / "plugin" / "store.py").read_text()
 
         self.assertIn('id="health-scan"', html)
@@ -947,6 +948,9 @@ class VizRetentionTests(unittest.TestCase):
         self.assertIn("projection_failed", app)
         self.assertIn("PROJECTION_MAX_POINTS = 500", store_source)
         self.assertIn('id="projection-policy"', html)
+        self.assertIn('id="projection-policy" class="projection-policy"', html)
+        self.assertIn(".projection-policy {", css)
+        self.assertIn(".health-last-check > b", css)
         self.assertIn("First 500 stored rows", html)
         self.assertIn("projection.budget", app)
         self.assertIn("projection.truncated", app)
