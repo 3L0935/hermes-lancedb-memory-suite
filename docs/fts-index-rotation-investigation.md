@@ -59,7 +59,7 @@ So there is no competing writer to find: one generation per batch is the whole
 mechanism. The `15h`/`16h` counts are explained by the volume of one-shot
 maintenance scripts run against the live database in those two hours
 (`/tmp/clean_big.py:78`, `/tmp/split_hub.py:45`, `/tmp/restore_radio.py:28` all
-construct `LanceDBStore("/home/elo/.hermes/lancedb")` directly, bypassing the
+construct `LanceDBStore("$HOME/.hermes/lancedb")` directly, bypassing the
 gateway). The gateway writer contributes the "FTS index ready on content column"
 lines: 19 of them in `~/.hermes/logs/agent.log`, clustered at 15:47-15:48 (10),
 16:12 (4), 16:44-16:45 (3), plus one each at 12:48 and 17:20.

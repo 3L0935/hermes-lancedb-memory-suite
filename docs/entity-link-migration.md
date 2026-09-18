@@ -148,8 +148,8 @@ Implementation SHA-256 after: `f4c5236789cf34592697a3cccf36689f1815564066c90106e
 Commands actually used (from the repository root):
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 /home/elo/.hermes/hermes-agent/venv/bin/python audit/repro/measure-stable-links.py before /tmp/lancedb-stable-links-20260913-tu9hqkkt --baseline-store /tmp/lancedb-stable-links-20260913-tu9hqkkt/baseline-store.py
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 /home/elo/.hermes/hermes-agent/venv/bin/python audit/repro/measure-stable-links.py after /tmp/lancedb-stable-links-20260913-tu9hqkkt
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 $HOME/.hermes/hermes-agent/venv/bin/python audit/repro/measure-stable-links.py before /tmp/lancedb-stable-links-20260913-tu9hqkkt --baseline-store /tmp/lancedb-stable-links-20260913-tu9hqkkt/baseline-store.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 $HOME/.hermes/hermes-agent/venv/bin/python audit/repro/measure-stable-links.py after /tmp/lancedb-stable-links-20260913-tu9hqkkt
 ```
 
 The temporary baseline source was exported with
@@ -176,7 +176,7 @@ must also be run after the final commit; their terminal output and local logs ar
 the final verification record, without making another documentation-only commit.
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent $HOME/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
 for file in static/*.js; do node --check "$file" || exit; done
 ```
 
