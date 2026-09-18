@@ -57,7 +57,7 @@ class MinimalProvider(MemoryProvider):
 
 class RecallStatusTests(unittest.TestCase):
     def setUp(self):
-        self.provider = LanceDBMemoryProvider()
+        self.provider = LanceDBMemoryProvider(config={"auto_prefetch": True})
         self.store = SearchStore(results=hits(3))
         self.provider._store = self.store
 
@@ -103,19 +103,67 @@ class RecallStatusTests(unittest.TestCase):
         self.assertIsNot(LanceDBMemoryProvider.identity_signature, MemoryProvider.identity_signature)
 
 
+class AutoPrefetchDisabledTests(unittest.TestCase):
+    """The push path is off by default: an off-topic match must never reach the turn."""
+
+    def test_default_provider_injects_nothing(self):
+        provider = LanceDBMemoryProvider()  # no config -> default
+        provider._store = SearchStore(results=hits(3))
+        self.assertEqual("", provider.prefetch("anything"))
+        self.assertEqual(0, provider._store.calls, "search must not even run")
+        self.assertIsNone(provider.recall_status())
+
+    def test_explicit_false_injects_nothing(self):
+        provider = LanceDBMemoryProvider(config={"auto_prefetch": False})
+        provider._store = SearchStore(results=hits(3))
+        self.assertEqual("", provider.prefetch("anything"))
+        self.assertEqual(0, provider._store.calls)
+
+    def test_opt_in_restores_injection(self):
+        provider = LanceDBMemoryProvider(config={"auto_prefetch": True})
+        provider._store = SearchStore(results=hits(2))
+        text = provider.prefetch("anything")
+        self.assertTrue(text.startswith("## LanceDB Memory"))
+        self.assertEqual(2, provider.recall_status().count)
+
+    def test_disabled_path_never_calls_ollama(self):
+        """The disabled path must not pay the embedding round-trip either."""
+
+        class ExplodingStore:
+            calls = 0
+
+            def search(self, *a, **k):
+                ExplodingStore.calls += 1
+                raise AssertionError("the disabled prefetch must not touch the store")
+
+        provider = LanceDBMemoryProvider()
+        provider._store = ExplodingStore()
+        self.assertEqual("", provider.prefetch("anything"))
+        self.assertEqual(0, ExplodingStore.calls)
+
+
 class IdentitySignatureTests(unittest.TestCase):
+    @staticmethod
+    def _manifest_version() -> str:
+        import yaml
+        from pathlib import Path
+        manifest = Path(__file__).resolve().parent.parent / "plugin" / "plugin.yaml"
+        return str(yaml.safe_load(manifest.read_text(encoding="utf-8"))["version"])
+
     def test_signature_is_a_json_serializable_mapping_with_the_manifest_version(self):
         signature = LanceDBMemoryProvider().identity_signature()
         self.assertIsInstance(signature, dict)
         self.assertEqual({"lancedb_version"}, set(signature))
-        self.assertEqual("1.3.0", signature["lancedb_version"])
+        # Contract between two pieces of data, not a snapshot: the signature carries the
+        # version the deployed manifest declares, whatever that version currently is.
+        self.assertEqual(self._manifest_version(), signature["lancedb_version"])
         json.dumps(signature)  # the gateway folds this into its cache key
 
     def test_signature_works_without_initialize(self):
         """The gateway calls this on an UNINITIALIZED instance on every message."""
         provider = LanceDBMemoryProvider()
         self.assertIsNone(provider._store)
-        self.assertEqual("1.3.0", provider.identity_signature()["lancedb_version"])
+        self.assertEqual(self._manifest_version(), provider.identity_signature()["lancedb_version"])
 
     def test_signature_does_not_raise_when_the_manifest_is_unreadable(self):
         import plugin as plugin_module

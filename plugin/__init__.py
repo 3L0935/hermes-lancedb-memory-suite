@@ -3,6 +3,7 @@
 Provides semantic search, graph export, and explicit memory write
 through the MemoryProvider interface with 4 agent tools.
 Auto-sync is intentionally disabled — only explicit memory writes.
+Auto-injection (prefetch) is off by default too: recall is a tool call, not a push.
 """
 
 from __future__ import annotations
@@ -380,6 +381,15 @@ class LanceDBMemoryProvider(MemoryProvider):
                 "description": "Ollama embedding model name",
                 "default": "nomic-embed-text",
             },
+            {
+                "key": "auto_prefetch",
+                "description": (
+                    "Push automatically recalled memories into every turn. Off by default: "
+                    "an off-topic match gets spliced onto the user message as pertinent "
+                    "context. Use lancedb_search instead."
+                ),
+                "default": False,
+            },
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -452,7 +462,22 @@ class LanceDBMemoryProvider(MemoryProvider):
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Auto-injection is intentionally disabled — recall is a tool call, not a push.
+
+        The core calls this before every non-trivial turn and splices the returned text
+        onto the user message as "relevant memory". Measured on a real database, that push
+        is not reliable: an ambiguous query ("and where is the backup") returned an
+        unrelated skills-backup entry and a Skate3 patch through the vector path, below
+        the lax cosine floor. Presented as pertinent context, that misleads more than it
+        helps.
+
+        Explicit lancedb_search has no such failure mode: the query is deliberate, the
+        results are visible, and an off-topic hit is discarded instead of injected. Set
+        memory.lancedb.auto_prefetch: true in config.yaml to restore the push.
+        """
         self._last_recall_count = 0
+        if not self._config.get("auto_prefetch"):
+            return ""
         if not self._store or not query:
             return ""
         try:
