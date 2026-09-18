@@ -871,7 +871,44 @@ class VizRetentionTests(unittest.TestCase):
             "addEventListener('wheel', cancelCameraAnimation, { capture: true, passive: true })",
             graph,
         )
-        self.assertIn('/static/graph.js?8', html)
+        # Le cache-buster est un detail de version, pas l'invariant : on verifie
+        # que graph.js est charge AVEC un cache-buster, sans figer le numero
+        # (le figer obligeait a editer le test a chaque bump).
+        self.assertRegex(html, r'/static/graph\.js\?\d+')
+
+    def test_responsive_contract_survives_future_edits(self):
+        """Le layout mobile/fold est un contrat : nav atteignable, CSS en fin de
+        fichier, et le module responsive charge. Ces trois points ont ete casses
+        une fois ; le test les tient."""
+        html = (ROOT / "static" / "index.html").read_text()
+        css = (ROOT / "static" / "style.css").read_text()
+        js = (ROOT / "static" / "responsive.js").read_text()
+
+        # 1. La navigation ne doit JAMAIS etre supprimee : elle est un tiroir
+        #    sous 768px. Le bug d'origine etait `#nav { display: none }`.
+        self.assertNotIn("#nav { display: none; }", css)
+        self.assertIn("body.nav-open #nav", css)
+        self.assertIn('id="nav-toggle"', html)
+        self.assertIn("window.toggleNav", js)
+
+        # 2. Les breakpoints vivent en fin de fichier : une media query placee
+        #    avant des regles plus specifiques perd la cascade.
+        responsive_at = css.find("RESPONSIVE — fin de fichier")
+        self.assertGreater(responsive_at, 0)
+        self.assertNotIn("@media(max-width:640px)", css[:responsive_at])
+
+        # 3. Le module responsive est charge, et la topbar garde une hauteur
+        #    mesuree plutot qu'une constante fausse des qu'elle passe sur
+        #    plusieurs lignes.
+        self.assertRegex(html, r'/static/responsive\.js\?\d+')
+        self.assertIn("--tb-h", css)
+        self.assertIn("measureTopbar", js)
+        self.assertRegex(html, r'/static/style\.css\?\d+')
+
+        # 4. Les appareils a pli sont traites par des media queries dediees.
+        self.assertIn("horizontal-viewport-segments: 2", css)
+        self.assertIn("vertical-viewport-segments: 2", css)
+        self.assertIn("viewport-segment-width 0 0", css)
 
     def test_graph_layout_has_a_fixed_seed_without_disabling_drag_or_physics(self):
         graph = (ROOT / "static" / "graph.js").read_text()

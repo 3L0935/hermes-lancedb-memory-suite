@@ -23,12 +23,39 @@
   --amber-soft: #fcd34d;
   --purple: #8b5cf6;
   --nav-width: 200px;
+  --nav-rail: 48px;
+  --sidebar-w: 390px;
+  --topbar-h: 54px;
+  --tb-pad-x: 24px;
+  --gap-scale: 1;
+  /* Hauteur de la topbar, mesuree en JS (--tb-h), sert de repli si le JS ne tourne pas. */
+  --tb-h: 54px;
+  /* Largeur du pli quand le CSS ne peut pas la lire (segments non exposes). */
+  --fold-fallback: 32px;
+}
+
+/* Sur une machine a 2 segments, la taille du pli est reelle : on l'expose au reste du CSS.
+   Hors pli, les variables valent 0 (valeur de repli), donc les regles qui s'en servent
+   sont neutres au lieu de laisser un trou. */
+:root {
+  --fold-x: env(viewport-segment-left 1 0, 0);
+  --fold-w: calc(env(viewport-segment-left 1 0, 0px) - env(viewport-segment-right 0 0, 0px));
+  --fold-y: env(viewport-segment-top 0 1, 0);
+  --fold-h: calc(env(viewport-segment-top 0 1, 0px) - env(viewport-segment-bottom 0 0, 0px));
+  --seg-0-w: env(viewport-segment-width 0 0, 100%);
+  --seg-1-w: env(viewport-segment-width 1 0, 100%);
+  --seg-0-h: env(viewport-segment-height 0 0, 100%);
+  --seg-1-h: env(viewport-segment-height 0 1, 100%);
 }
 
 body {
   font-family: 'Fira Sans', system-ui, sans-serif;
   background: var(--bg); color: var(--text);
-  overflow: hidden; height: 100vh;
+  overflow: hidden;
+  /* dvh : sur mobile 100vh inclut la barre d'URL, donc la page depassait de
+     ~60px et le bas devenait inatteignable. dvh suit la barre d'URL. */
+  height: 100vh;
+  height: 100dvh;
 }
 
 /* ─── Glow ─── */
@@ -40,7 +67,7 @@ body {
 }
 
 /* ─── Layout ─── */
-#app { display: flex; height: 100vh; }
+#app { display: flex; height: 100vh; height: 100dvh; }
 
 /* ─── Nav ─── */
 #nav {
@@ -50,8 +77,18 @@ body {
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; z-index: 100;
   padding: 12px 0;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  overflow-y: auto; overscroll-behavior: contain;
+}
+/* Scrim : assombrit le contenu quand la nav est un tiroir (sous 1024px). */
+#nav-scrim {
+  position: fixed; inset: 0; z-index: 99;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
 }
 #nav-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 10px 16px 16px;
   font-family: 'Fira Code', monospace;
   font-size: 14px; font-weight: 500;
@@ -60,6 +97,13 @@ body {
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
 }
+#nav-close {
+  display: none; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex: 0 0 auto;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--dim); font-size: 15px; line-height: 1; cursor: pointer;
+}
+#nav-close:hover { color: var(--red-soft); border-color: #3b1f1f; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 16px; cursor: pointer;
@@ -72,7 +116,7 @@ body {
   color: var(--accent); background: rgba(99,102,241,0.1);
   border-left-color: var(--indigo);
 }
-.nav-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
+.nav-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .nav-icon svg { width: 16px; height: 16px; }
 
 /* ─── Main area ─── */
@@ -80,16 +124,37 @@ body {
 
 /* ─── Topbar ─── */
 #topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 24px; background: var(--panel);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px var(--tb-pad-x); background: var(--panel);
   border-bottom: 1px solid var(--border);
-  z-index: 10; height: 54px;
+  z-index: 10;
+  /* min-height + auto : la barre grandit au lieu de laisser ses groupes deborder. */
+  min-height: var(--topbar-h); height: auto; flex-wrap: wrap;
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-left: max(var(--tb-pad-x), env(safe-area-inset-left));
+  padding-right: max(var(--tb-pad-x), env(safe-area-inset-right));
+}
+.tb-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+.tb-right { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap; }
+.tb-stats { display: flex; gap: 18px; font-size: 11px; color: var(--muted); align-items: center; flex-wrap: wrap; min-width: 0; }
+.tb-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+/* Le burger existe toujours dans le DOM ; c'est le CSS qui decide de l'afficher. */
+#nav-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 38px; height: 38px; flex: 0 0 auto;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--accent); cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+#nav-toggle:hover, #nav-toggle:focus-visible {
+  border-color: var(--indigo); color: var(--accent-soft);
+  box-shadow: 0 0 12px rgba(99,102,241,0.25);
 }
 #topbar h1 {
   font-family: 'Fira Code', monospace; font-size: 15px; font-weight: 500;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.3px; white-space: nowrap;
   background: linear-gradient(135deg, var(--accent), var(--indigo));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 #topbar h1 span { background: none; -webkit-text-fill-color: var(--indigo); font-weight: 400; }
 #topbar .stats { display: flex; gap: 18px; font-size: 11px; color: var(--muted); align-items: center; }
@@ -112,8 +177,12 @@ body {
 #controls {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 20px; background: var(--panel);
-  border-bottom: 1px solid var(--border); height: 46px;
+  border-bottom: 1px solid var(--border);
+  /* height:auto + min-height : la barre doit grandir en wrap, pas deborder.
+     46px fixe + flex-wrap etait contradictoire et poussait la 3e rangee hors du cadre. */
+  min-height: 46px; height: auto;
   flex-wrap: wrap;
+  row-gap: 8px;
 }
 #controls input[type=text] {
   flex: 1; max-width: 260px; padding: 6px 12px; border-radius: 6px;
@@ -140,6 +209,13 @@ body {
   border-radius: 50%; background: var(--indigo); border: 2px solid var(--panel);
   margin-top: -5px; cursor: pointer;
 }
+
+/* Conteneurs de controle. display:contents sur desktop = aucune boite generee,
+   le layout desktop reste exactement celui d'avant. C'est le bloc mobile qui les
+   transforme en rangees reelles pour replier les filtres. */
+.ctl-row { display: contents; }
+#filters-toggle { display: none; }
+.filters-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--indigo); box-shadow: 0 0 7px rgba(99,102,241,0.5); }
 
 /* Typed relations are one control: activation, type, and color language. */
 #typed-relation-control {
@@ -188,24 +264,30 @@ body {
 
 /* ─── Sidebar ─── */
 #sidebar {
-  position: absolute; top: 0; right: -390px; width: 390px;
+  position: absolute; top: 0; right: 0; width: var(--sidebar-w); max-width: 100%;
   height: 100%; background: var(--panel);
   border-left: 1px solid var(--border);
-  transition: right 0.2s ease;
+  /* transform au lieu de right : compose GPU, pas de recalcul de layout du parent. */
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
   display: flex; flex-direction: column; z-index: 50;
   box-shadow: -8px 0 32px rgba(0,0,0,0.6);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-#sidebar.open { right: 0; }
+#sidebar.open { transform: translateX(0); }
 #sidebar-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; border-bottom: 1px solid var(--border);
   font-family: 'Fira Code', monospace; font-size: 13px; font-weight: 500; color: var(--accent);
 }
 #sidebar-close {
-  background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer;
-  padding: 2px 6px; transition: color 0.2s;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; flex: 0 0 auto;
+  margin: -8px -8px -8px 0;
+  background: none; border: none; color: var(--dim); font-size: 19px; cursor: pointer;
+  border-radius: 8px; transition: color 0.2s, background 0.15s;
 }
-#sidebar-close:hover { color: var(--red); }
+#sidebar-close:hover { color: var(--red); background: rgba(239,68,68,0.08); }
 #sidebar-content { flex: 1; overflow-y: auto; padding: 16px 18px; font-size: 13px; line-height: 1.7; }
 #sidebar-content .cat-badge {
   display: inline-block; padding: 3px 10px; border-radius: 4px;
@@ -358,6 +440,7 @@ body {
 }
 
 /* ─── Stats grid ─── */
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .stats-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px; margin-bottom: 18px;
@@ -462,8 +545,8 @@ textarea { resize: vertical; min-height: 80px; font-family: 'JetBrains Mono', mo
 
 /* Search panel */
 #search-panel {
-  position: fixed; top: 100px; left: 24px;
-  width: 340px; max-height: 400px; overflow-y: auto;
+  position: fixed; top: calc(var(--tb-h) + 12px); left: 24px;
+  width: 340px; max-width: calc(100vw - 32px); max-height: 400px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border-glow); border-radius: 10px;
   z-index: 100; display: none;
 }
@@ -529,18 +612,10 @@ input[type=range] { height: 4px; accent-color: var(--indigo); cursor: pointer; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.4); }
 ::selection { background: rgba(99,102,241,0.3); color: #fff; }
 
-/* ─── Responsive ─── */
-@media(max-width:1024px) {
-  #nav { width: 48px; min-width: 48px; }
-  .nav-item span:not(.nav-icon) { display: none; }
-  .nav-icon svg { width: 18px; height: 18px; }
-  #nav-header { font-size: 0; }
-}
-@media(max-width:640px) {
-  #nav { display: none; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .projection-policy { margin-left: 0; white-space: normal; }
-}
+/* Les breakpoints responsive vivent en FIN de fichier (voir § RESPONSIVE).
+   Une media query placee au milieu du fichier perd contre toute regle plus
+   specifique ecrite apres elle, quel que soit le match : c'est ce qui rendait
+   le layout mobile incoherent. */
 /* Structured editor: bounded fields and explicit old/new preview. */
 .structured-editor { display:grid; gap:9px; }
 .structured-editor label { display:grid; gap:4px; color:var(--muted); font-size:10px; }
@@ -580,8 +655,8 @@ input[type=range] { height: 4px; accent-color: var(--indigo); cursor: pointer; }
 
 /* ─── D6 — Why this result? ─── */
 #why-panel {
-  position: fixed; top: 100px; left: 380px;
-  width: 360px; max-height: 460px; overflow-y: auto;
+  position: fixed; top: calc(var(--tb-h) + 12px); left: 380px;
+  width: 360px; max-width: calc(100vw - 32px); max-height: 460px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border-glow); border-radius: 10px;
   z-index: 101; display: none;
   box-shadow: 0 0 2px rgba(99,102,241,0.08), 0 0 10px rgba(99,102,241,0.06);
@@ -623,3 +698,235 @@ input[type=range] { height: 4px; accent-color: var(--indigo); cursor: pointer; }
 .compact-paths { margin:0 0 6px; padding-left:0; list-style:none; }
 .compact-paths > li { margin-bottom:3px; }
 .compact-paths code { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE — fin de fichier, volontairement.
+   Ordre de cascade : ces blocs doivent passer APRES toutes les regles de
+   base, sinon ils perdent contre une regle plus specifique ecrite plus bas.
+
+   Familles couvertes :
+     - desktop                                  (>= 1280px)
+     - tablette / fold ouvert large             (1024 - 1279px)
+     - fold ouvert, mode livre                  (768 - 1023px)
+     - fold ouvert etroit, mode livre           (640 - 767px)
+     - fold plie / telephone                    (< 640px)
+     - fold mode passeport (2 segments empiles, toutes largeurs)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Repere visuel du pli : ne s'affiche QUE si le navigateur expose des segments.
+   Sur un appareil sans pli, env() retombe sur la valeur par defaut et la regle
+   ne produit rien de visible.
+   IMPORTANT : env(viewport-segment-*) est exprime en coordonnees VIEWPORT. Le
+   repere doit donc etre en position:fixed, sinon l'offset du parent (largeur de
+   la nav) s'ajoute et la ligne est decalee d'autant. Le z-index le place SOUS la
+   topbar et les controles (qui ont un fond opaque) : la ligne ne se voit que sur
+   la zone de graphe, la ou elle sert. */
+#fold-guide { position: fixed; z-index: 8; pointer-events: none; display: none; }
+
+@media (horizontal-viewport-segments: 2) {
+  #fold-guide {
+    display: block;
+    top: 0; bottom: 0;
+    left: var(--seg-0-w);
+    width: var(--fold-w);
+    background: linear-gradient(180deg, rgba(99,102,241,0) 0%, rgba(99,102,241,0.07) 15%, rgba(99,102,241,0.07) 85%, rgba(99,102,241,0) 100%);
+    border-left: 1px dashed rgba(99,102,241,0.28);
+    border-right: 1px dashed rgba(99,102,241,0.28);
+  }
+  /* Sidebar en mode livre : uniquement dans le segment de droite, jamais a
+     cheval sur la charniere. */
+  #sidebar { width: min(var(--sidebar-w), var(--seg-1-w)); }
+}
+@media (vertical-viewport-segments: 2) {
+  #fold-guide {
+    display: block;
+    left: 0; right: 0;
+    top: var(--seg-0-h);
+    height: var(--fold-h);
+    background: linear-gradient(90deg, rgba(99,102,241,0) 0%, rgba(99,102,241,0.07) 15%, rgba(99,102,241,0.07) 85%, rgba(99,102,241,0) 100%);
+    border-top: 1px dashed rgba(99,102,241,0.28);
+    border-bottom: 1px dashed rgba(99,102,241,0.28);
+  }
+  /* Mode passeport : format large et bas. La sidebar se limite a une moitie
+     pour ne pas avaler les deux segments. */
+  #sidebar { max-height: 100%; width: min(var(--sidebar-w), 50%); }
+  .page-inner { max-width: 100%; }
+  #controls { padding: 6px 14px; }
+  .scatter-container { height: clamp(260px, 46vh, 420px); }
+}
+
+/* La topbar et les controles gardent un fond opaque AU-DESSUS du repere de pli :
+   la ligne ne doit pas traverser les zones de commande. */
+#topbar { z-index: 30; }
+#controls { position: relative; z-index: 20; }
+
+/* ── Tablette / fold ouvert large (1024 - 1279px) ──
+   Nav en rail d'icones : elle reste atteignable en un tap. C'etait le point de
+   rupture du layout precedent (nav purement supprimee sous 640px, sans burger). */
+@media (max-width: 1279px) {
+  :root { --tb-pad-x: 16px; }
+  #nav { width: var(--nav-rail); min-width: var(--nav-rail); }
+  .nav-item { justify-content: center; padding: 11px 0; }
+  .nav-item span:not(.nav-icon) { display: none; }
+  #nav-header { display: none; }
+  #nav-close { display: none; }
+  #nav-toggle { display: inline-flex; }
+  .tb-stats { gap: 14px; }
+  #topbar h1 { font-size: 14px; }
+  .health-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+
+/* ── Fold ouvert / tablette etroite (768 - 1023px) ── */
+@media (max-width: 1023px) {
+  .page-inner { padding: 16px; }
+  .dash-grid { grid-template-columns: 1fr; }
+  #controls { padding: 8px 14px; }
+  #controls input[type=text] { max-width: none; }
+  .conflict-pair { grid-template-columns: 1fr; }
+  .conflict-vs { justify-self: center; }
+  .stat-card .stat-value { font-size: 22px; }
+}
+
+/* ── Fold ouvert etroit (640 - 767px) ──
+   La nav devient un TIROIR plein-hauteur, ouverte par le burger. Jamais
+   supprimee : c'etait le bug principal sur un appareil plie. */
+@media (max-width: 767px) {
+  #nav {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: min(280px, 84vw); min-width: 0;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 8px 0 32px rgba(0,0,0,0.6);
+    z-index: 200;
+    border-right: 1px solid var(--border);
+  }
+  body.nav-open #nav { transform: translateX(0); }
+  body.nav-open #nav-scrim { opacity: 1; pointer-events: auto; }
+  #nav-header { display: flex; }
+  #nav-header span {
+    background: linear-gradient(135deg, var(--accent), var(--indigo));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  #nav-close { display: inline-flex; }
+  .nav-item { justify-content: flex-start; padding: 11px 16px; }
+  .nav-item span:not(.nav-icon) { display: inline; }
+  #nav-toggle { display: inline-flex; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .editor-row { grid-template-columns: 1fr; }
+  .edit-diff { grid-template-columns: 1fr; }
+  .review-card { grid-template-columns: 1fr; }
+  .review-reason { grid-row: auto; }
+  .why-row { grid-template-columns: 1fr; }
+  .why-label { overflow-wrap: anywhere; }
+}
+
+/* ── Fold plie / telephone (< 640px) ──
+   Largeurs type 353-430px. Contraintes mesurees sur le layout precedent :
+   topbar debordait de 176px, bloc de stats de 435px, sidebar de 37px, et les
+   boutons Export/Import/Refresh faisaient 25px de haut.
+   Apres une premiere passe, les controles du graphe prenaient 288px (36 % de
+   l'ecran) et la topbar 124px en 3 lignes : d'ou les deux regroupements
+   ci-dessous (topbar a 2 lignes, controles a 5 rangees compactes). */
+@media (max-width: 639px) {
+  :root { --sidebar-w: 100%; }
+  #topbar { padding: 8px 12px; gap: 8px; row-gap: 6px; }
+  .tb-left { flex: 1 1 auto; min-width: 0; }
+  #topbar h1 { font-size: 12px; }
+  #topbar h1 span { display: none; }
+  /* display:contents fait remonter .tb-stats et .tb-actions comme enfants directs
+     de #topbar : on peut alors les ordonner pour tenir en DEUX lignes au lieu de
+     trois (burger + titre + actions / compteurs). */
+  .tb-right { display: contents; }
+  .tb-actions { order: 2; margin-left: auto; flex: 0 0 auto; gap: 5px; }
+  .tb-stats { order: 3; flex: 1 1 100%; gap: 12px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-bottom: 2px; }
+  .tb-stats::-webkit-scrollbar { display: none; }
+  .tb-stats > span { white-space: nowrap; }
+  /* Export/Import restent atteignables : compacts, pas supprimes. */
+  .tb-actions .btn-neon { min-height: 34px; padding: 5px 9px; font-size: 10px; }
+  .tb-actions .btn-neon-refresh { min-width: 34px; padding: 5px 8px; }
+  .page-inner { padding: 14px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card { padding: 11px 8px; }
+  .stat-card .stat-value { font-size: 20px; }
+  .dash-grid { grid-template-columns: 1fr; gap: 10px; }
+  .section-header h2 { font-size: 15px; }
+  .filter-bar { padding: 10px; gap: 6px; }
+  .filter-bar input, .filter-bar select { flex: 1 1 100%; }
+  .card { padding: 13px; }
+  .bar-row .bar-label { min-width: 62px; font-size: 9px; }
+  #sidebar { border-left: none; }
+  #sidebar-header { padding: 12px 14px; }
+  #sidebar-content { padding: 14px; font-size: 13px; }
+  #sidebar-content .detail-content { font-size: 11px; padding: 10px; }
+  .detail-stats { grid-template-columns: 1fr 1fr; }
+  .detail-actions button { min-height: 40px; flex: 1 1 auto; }
+  /* Controles du graphe : barre de recherche + bouton Filters sur une ligne,
+     filtres replies, meta sur la derniere ligne. Repasser de 216px a ~80px de
+     chrome permanent etait necessaire : 27 % de l'ecran en controles, c'est
+     moins de carte pour le graphe lui-meme. */
+  .ctl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+  .ctl-main { flex: 1 1 100%; }
+  #controls .ctl-main input[type=text] { flex: 1 1 auto; order: 0; min-width: 0; }
+  #filters-toggle {
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    min-height: 34px; padding: 5px 10px;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: #0d0d1b; color: var(--accent); font-size: 11px; cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  #filters-toggle[data-active="true"] { border-color: #4338ca; color: var(--accent-soft); }
+  #filters-toggle[data-active="true"] .filters-dot { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.6); }
+  #filters-toggle[aria-expanded="false"] .filters-dot { opacity: 0.5; box-shadow: none; }
+  /* Les filtres ne s'affichent que sur demande. */
+  #ctl-filters { display: none; }
+  #ctl-filters.open { display: flex; }
+  .ctl-meta { flex: 1 1 100%; justify-content: space-between; }
+  #controls { padding: 8px 12px; gap: 6px; row-gap: 6px; }
+  #controls input[type=text] { max-width: none; font-size: 12px; }
+  #controls select { min-height: 32px; font-size: 11px; }
+  #controls #cat-filter, #controls #cluster-mode { flex: 1 1 0; min-width: 0; }
+  #controls label { min-height: 32px; font-size: 10px; }
+  #typed-relation-control { flex: 1 1 100%; height: 32px; }
+  #typed-relation-control #relation-filter { flex: 1 1 auto; min-width: 0; font-size: 11px; }
+  #threshold-slider { max-width: 96px; flex: 0 1 auto; }
+  #controls label:has(#threshold-slider) { flex: 1 1 auto; }
+  .graph-budget { flex: 1 1 auto; min-width: 0; margin-left: 0; font-size: 10px;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #refresh-btn { margin-left: 0 !important; min-height: 34px; flex: 0 0 auto; }
+  #search-panel { left: 12px; right: 12px; width: auto; max-height: 60vh; }
+  #why-panel { left: 12px; right: 12px; width: auto; max-height: 70vh; }
+  .modal { width: 94%; padding: 16px; }
+  .conflict-pair { grid-template-columns: 1fr; }
+  .health-grid { grid-template-columns: 1fr 1fr; }
+  .compact-metrics > span { flex: 1 1 calc(50% - 10px); }
+  .pagination button { min-width: 34px; min-height: 34px; }
+  .btn-neon, #sidebar-content .detail-actions button { padding: 6px 12px; }
+  .data-table th, .data-table td { padding: 8px 8px; }
+  .data-table td { max-width: 160px; }
+  .scatter-container { height: clamp(240px, 42vh, 380px); }
+  .timeline { padding-left: 18px; }
+  .dup-item { flex-wrap: wrap; }
+  .projection-policy { margin-left: 0; white-space: normal; }
+}
+
+/* ── Telephone tres etroit (< 400px) : fold plie, ~353px ── */
+@media (max-width: 399px) {
+  :root { --tb-pad-x: 10px; }
+  #topbar h1 { font-size: 12px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat-card .stat-value { font-size: 18px; }
+  .stat-card .stat-label { font-size: 9px; }
+  .page-inner { padding: 12px; }
+  #controls { padding: 8px 10px; }
+  .health-grid { grid-template-columns: 1fr; }
+}
+
+/* Sur un appareil tactile le survol n'existe pas : pas de tooltip fantome. */
+@media (hover: none) {
+  .scatter-tooltip { display: none !important; }
+}
+
+/* Respect du reglage systeme : pas de mouvement impose. */
+@media (prefers-reduced-motion: reduce) {
+  #nav, #sidebar, #nav-scrim, .nav-item, .btn-neon { transition: none !important; }
+}

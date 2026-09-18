@@ -2,19 +2,23 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>LanceDB — Memory Graph</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?8">
+<link rel="stylesheet" href="/static/style.css?11">
 </head>
 <body>
 
 <div id="app">
   <!-- ═══ Nav ═══ -->
+  <div id="nav-scrim" onclick="closeNav()"></div>
   <div id="nav">
-    <div id="nav-header">◆ LanceDB</div>
+    <div id="nav-header">
+      <span>◆ LanceDB</span>
+      <button id="nav-close" type="button" aria-label="Close navigation" onclick="closeNav()">x</button>
+    </div>
     <div class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
       <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4v4H2zM10 4h4v4h-4zM2 10h4v4H2zM10 10h4v4h-4z"/></svg></span><span>Dashboard</span>
     </div>
@@ -53,24 +57,33 @@
   <!-- ═══ Main area ═══ -->
   <div id="main-area">
     <div id="topbar">
-      <h1>LanceDB <span>Memory Explorer</span></h1>
-      <div class="stats">
-        <span>Memories <b id="mem-count">--</b></span>
-        <span>Entities <b id="ent-count">--</b></span>
-        <span>Edges <b id="edge-count">--</b></span>
-        <span id="subgraph-count" style="opacity:0.7;font-size:0.9em;"></span>
-        <span id="db-size"></span>
-        <span id="fresh-legend" style="display:none;">
-          <span title="< 1h"><span class="dot dot-f0"></span>1h</span>
-          <span title="1h - 24h"><span class="dot dot-f1"></span>1d</span>
-          <span title="1d - 7d"><span class="dot dot-f2"></span>1w</span>
-          <span title="7d - 30d"><span class="dot dot-f3"></span>1m</span>
-          <span title="> 30d"><span class="dot dot-f4"></span>old</span>
-        </span>
-        <button class="btn-neon btn-neon-export" onclick="exportMemories()">Export</button>
-        <button class="btn-neon btn-neon-import" onclick="importMemories()">Import</button>
-        <button class="btn-neon btn-neon-refresh" onclick="refreshData()" title="Refresh from DB">↻</button>
-        <input type="file" id="import-file" accept=".json" style="display:none;" onchange="handleImportFile(this)" />
+      <div class="tb-left">
+        <button id="nav-toggle" type="button" aria-label="Open navigation" aria-controls="nav" aria-expanded="false">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 4.5h14M2 9h14M2 13.5h14"/></svg>
+        </button>
+        <h1>LanceDB <span>Memory Explorer</span></h1>
+      </div>
+      <div class="tb-right">
+        <div class="tb-stats">
+          <span>Memories <b id="mem-count">--</b></span>
+          <span>Entities <b id="ent-count">--</b></span>
+          <span>Edges <b id="edge-count">--</b></span>
+          <span id="subgraph-count" style="opacity:0.7;font-size:0.9em;"></span>
+          <span id="db-size"></span>
+          <span id="fresh-legend" style="display:none;">
+            <span title="< 1h"><span class="dot dot-f0"></span>1h</span>
+            <span title="1h - 24h"><span class="dot dot-f1"></span>1d</span>
+            <span title="1d - 7d"><span class="dot dot-f2"></span>1w</span>
+            <span title="7d - 30d"><span class="dot dot-f3"></span>1m</span>
+            <span title="> 30d"><span class="dot dot-f4"></span>old</span>
+          </span>
+        </div>
+        <div class="tb-actions">
+          <button class="btn-neon btn-neon-export tb-full" onclick="exportMemories()">Export</button>
+          <button class="btn-neon btn-neon-import tb-full" onclick="importMemories()">Import</button>
+          <button class="btn-neon btn-neon-refresh" onclick="refreshData()" title="Refresh from DB" aria-label="Refresh from database">↻</button>
+          <input type="file" id="import-file" accept=".json" style="display:none;" onchange="handleImportFile(this)" />
+        </div>
       </div>
     </div>
 
@@ -80,7 +93,7 @@
         <div class="page-inner">
           <div class="section-header"><h2>Dashboard</h2></div>
           <div class="stats-grid" id="dash-stats"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div id="dash-grid" class="dash-grid">
             <div class="card"><div class="card-title">By Category</div><div id="dash-categories" class="bar-chart"></div></div>
             <div class="card"><div class="card-title">By Tier</div><div id="dash-tiers" class="bar-chart"></div></div>
             <div class="card"><div class="card-title">Top Tags</div><div id="dash-tags" class="bar-chart"></div></div>
@@ -238,51 +251,61 @@
       <!-- ═══ Graph ═══ -->
       <div id="page-graph" class="page">
         <div id="controls">
-          <input type="text" id="search" placeholder="Search memories or Enter for semantic..." />
-          <select id="cat-filter">
-            <option value="">All categories</option>
-            <option value="user_pref">Preferences</option>
-            <option value="project">Projects</option>
-            <option value="tech">Tech</option>
-            <option value="correction">Corrections</option>
-            <option value="fact">Facts</option>
-            <option value="insight">Insights</option>
-            <option value="decision">Decisions</option>
-            <option value="pattern">Patterns</option>
-            <option value="reference">References</option>
-            <option value="question">Questions</option>
-          </select>
-          <select id="cluster-mode" onchange="closeSidebar();loadGraph()">
-            <option value="raw">Embedding links</option>
-            <option value="category_hub">By category (hubs)</option>
-            <option value="entity_hub">By entity (hubs)</option>
-          </select>
-          <div id="typed-relation-control" data-family="off">
-            <label class="typed-relation-toggle" title="Overlay declared typed relations on the embedding links">
-              <span class="relation-control-dot" aria-hidden="true"></span>
-              <input type="checkbox" id="show-declared" onchange="closeSidebar();loadGraph()">
-              <span>Typed</span>
-            </label>
-            <select id="relation-filter" disabled aria-label="Declared relation type">
-              <option value="">All declared relations</option>
-              <option value="part_of">part_of</option><option value="depends">depends</option>
-              <option value="requires">requires</option><option value="runs_on">runs_on</option>
-              <option value="connects_to">connects_to</option><option value="uses">uses</option>
-              <option value="extends">extends</option><option value="supersedes">supersedes</option>
-              <option value="invalidates">invalidates</option><option value="contradicts">contradicts</option>
-            </select>
+          <div class="ctl-row ctl-main">
+            <input type="text" id="search" placeholder="Search memories or Enter for semantic..." />
+            <button id="filters-toggle" type="button" aria-expanded="false" aria-controls="ctl-filters">
+              <span class="filters-dot" aria-hidden="true"></span>
+              <span class="filters-label">Filters</span>
+            </button>
           </div>
-          <label>Threshold
-            <input type="range" id="threshold-slider" min="0.3" max="1" step="0.05" value="0.8"
-              oninput="document.getElementById('threshold-val').textContent=this.value"
-              onchange="closeSidebar();loadGraph()">
-            <span id="threshold-val" style="color:var(--accent);font-weight:600;min-width:36px;">0.80</span>
-          </label>
-          <label><input type="checkbox" id="tier1" checked onchange="applyFilters()"> T1</label>
-          <label><input type="checkbox" id="tier2" checked onchange="applyFilters()"> T2</label>
-          <label><input type="checkbox" id="tier3" checked onchange="applyFilters()"> T3</label>
-          <span id="hidden-neighbor-count" class="graph-budget">Loading graph…</span>
-          <button id="refresh-btn" class="btn-neon btn-neon-export">Refresh</button>
+          <div id="ctl-filters" class="ctl-row ctl-filters">
+            <select id="cat-filter">
+              <option value="">All categories</option>
+              <option value="user_pref">Preferences</option>
+              <option value="project">Projects</option>
+              <option value="tech">Tech</option>
+              <option value="correction">Corrections</option>
+              <option value="fact">Facts</option>
+              <option value="insight">Insights</option>
+              <option value="decision">Decisions</option>
+              <option value="pattern">Patterns</option>
+              <option value="reference">References</option>
+              <option value="question">Questions</option>
+            </select>
+            <select id="cluster-mode" onchange="closeSidebar();loadGraph()">
+              <option value="raw">Embedding links</option>
+              <option value="category_hub">By category (hubs)</option>
+              <option value="entity_hub">By entity (hubs)</option>
+            </select>
+            <div id="typed-relation-control" data-family="off">
+              <label class="typed-relation-toggle" title="Overlay declared typed relations on the embedding links">
+                <span class="relation-control-dot" aria-hidden="true"></span>
+                <input type="checkbox" id="show-declared" onchange="closeSidebar();loadGraph()">
+                <span>Typed</span>
+              </label>
+              <select id="relation-filter" disabled aria-label="Declared relation type">
+                <option value="">All declared relations</option>
+                <option value="part_of">part_of</option><option value="depends">depends</option>
+                <option value="requires">requires</option><option value="runs_on">runs_on</option>
+                <option value="connects_to">connects_to</option><option value="uses">uses</option>
+                <option value="extends">extends</option><option value="supersedes">supersedes</option>
+                <option value="invalidates">invalidates</option><option value="contradicts">contradicts</option>
+              </select>
+            </div>
+            <label>Threshold
+              <input type="range" id="threshold-slider" min="0.3" max="1" step="0.05" value="0.8"
+                oninput="document.getElementById('threshold-val').textContent=this.value"
+                onchange="closeSidebar();loadGraph()">
+              <span id="threshold-val" style="color:var(--accent);font-weight:600;min-width:36px;">0.80</span>
+            </label>
+            <label><input type="checkbox" id="tier1" checked onchange="applyFilters()"> T1</label>
+            <label><input type="checkbox" id="tier2" checked onchange="applyFilters()"> T2</label>
+            <label><input type="checkbox" id="tier3" checked onchange="applyFilters()"> T3</label>
+          </div>
+          <div class="ctl-row ctl-meta">
+            <span id="hidden-neighbor-count" class="graph-budget">Loading graph…</span>
+            <button id="refresh-btn" class="btn-neon btn-neon-export">Refresh</button>
+          </div>
         </div>
         <div id="main">
           <div id="graph-container">
@@ -292,6 +315,7 @@
             </div>
             <div id="search-panel"></div>
             <div id="why-panel"></div>
+            <div id="fold-guide" aria-hidden="true"></div>
             <div id="graph-canvas"></div>
           </div>
           <div id="sidebar">
@@ -313,9 +337,10 @@
 <script src="/static/http.js?1"></script>
 <script src="/static/search-metric.js?1"></script>
 <script src="/static/graph-relations.js?1"></script>
-<script src="/static/graph.js?8"></script>
+<script src="/static/graph.js?9"></script>
 <script src="/static/embedding-health-cache.js?1"></script>
-<script src="/static/app.js?7"></script>
+<script src="/static/app.js?9"></script>
+<script src="/static/responsive.js?2"></script>
 
 </body>
 </html>
