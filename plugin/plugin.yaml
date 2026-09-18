@@ -1,5 +1,5 @@
 name: lancedb-suite
-version: 1.4.0
+version: 1.5.0
 description: "LanceDB vector memory — zero-footprint local memory with entity extraction, linking, Ollama embeddings, and interactive graph visualization."
 python_dependencies:
   # The retrieval gate (BM25 threshold / abstention) is calibrated against the score
