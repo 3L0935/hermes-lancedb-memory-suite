@@ -109,22 +109,49 @@ ollama pull nomic-embed-text
 
 ### 2. Install the plugin
 
-```bash
-mkdir -p ~/.hermes/plugins/lancedb \
-  ~/.hermes/hermes-agent/plugins/memory/lancedb
-cp plugin/{store.py,memory_contract.py,__init__.py,plugin.yaml} \
-  ~/.hermes/plugins/lancedb/
-cp plugin/{store.py,memory_contract.py,__init__.py,plugin.yaml} \
-  ~/.hermes/hermes-agent/plugins/memory/lancedb/
+Two paths. Pick one, not both.
 
+**Via Hermes (recommended).** The plugin lives in the `plugin/` subdirectory of this
+repository, which the installer understands:
+
+```bash
+hermes plugins install 3L0935/hermes-lancedb-memory-suite/plugin
+hermes plugins enable lancedb
+```
+
+This installs into `~/.hermes/plugins/lancedb/` and pins the revision. Once the entry is
+accepted into the Hermes plugin catalog you can use the bare name instead:
+
+```bash
+hermes plugins install lancedb-memory-suite   # after catalog admission
+```
+
+**From a checkout (development).** Bundled-first discovery means the gateway reads
+`~/.hermes/hermes-agent/plugins/memory/lancedb/`, not the user plugin directory, so a local
+checkout has to be synced to both copies:
+
+```bash
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+for D in "$HERMES_HOME/plugins/lancedb" \
+         "$HERMES_HOME/hermes-agent/plugins/memory/lancedb"; do
+  mkdir -p "$D"
+  cp plugin/{store.py,memory_contract.py,__init__.py,plugin.yaml} "$D/"
+done
+```
+
+`scripts/deploy-local.sh` does exactly this, plus the visualizer files.
+
+**Dependencies.** The manifest declares them (`python_dependencies` in `plugin.yaml`), so a
+catalog install surfaces them. A checkout install needs them explicitly:
+
+```bash
 "$HOME/.hermes/hermes-agent/venv/bin/pip" install -r requirements.txt
 ```
 
-Do not replace the requirements install with an unpinned `pip install lancedb`.
-The BM25 score is produced by the retrieval engine, not by this repository
-alone: identical rows and code scored differently under LanceDB 0.34.0 and
-0.38.0. The abstention threshold is calibrated for the pinned
-`lancedb==0.34.0` engine.
+Do not replace this with an unpinned `pip install lancedb`. The BM25 score is produced by
+the retrieval engine, not by this repository alone: identical rows and code scored
+differently under LanceDB 0.34.0 and 0.38.0. The abstention threshold is calibrated for the
+pinned `lancedb==0.34.0` engine.
 
 ### 3. Configure Hermes
 
@@ -137,6 +164,24 @@ memory:
     db_path: ~/.hermes/lancedb
     embed_model: nomic-embed-text
 ```
+
+`db_path` and `embed_model` are the only settings you normally need. One more exists:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `auto_prefetch` | `false` | Push automatically recalled memories into every turn. See below. |
+
+**Why `auto_prefetch` defaults to off.** Hermes calls `prefetch()` before every non-trivial
+turn and splices the returned text onto the user message as relevant memory
+(`agent/turn_context.py`, `compose_user_api_content`). Measured against a real database, that
+push is not trustworthy: the query "and where is the backup" returned an unrelated
+skills-backup entry and a Skate3 patch, the latter through the vector path at cosine 0.2957,
+under the 0.3 floor. An explicit `lancedb_search` has no such failure mode — the query is
+deliberate, the results are visible before you use them, and a bad hit is discarded instead
+of injected. Set `auto_prefetch: true` to restore the push.
+
+Turning it off also removes the embedding round-trip from the turn's critical path, so a
+hung Ollama no longer costs the 30s HTTP timeout before the model sees your message.
 
 Restart Hermes:
 
@@ -285,6 +330,20 @@ a result or detail view is opened:
 
 Age alone does not make a memory false or low-quality. Detail, list, lexical,
 and hybrid reads use the same decoration path and do not create MVCC versions.
+
+### Recall is a tool call, not a push
+
+The plugin does not inject memories into your turns by default. Recall happens when the agent
+calls `lancedb_search`, with a deliberate query, and reads the results before using them. See
+`auto_prefetch` under [Configure Hermes](#3-configure-hermes) for the measurement behind that
+default and how to re-enable the push.
+
+The built-in `MEMORY.md` / `USER.md` blocks are unaffected and stay injected on every session.
+They are a separate path in the core (`agent/system_prompt.py`, `_memory_parts`) and are not
+bounded by any provider setting. They are also far too small to hold a technical corpus of this
+kind: 545 entries at ~371 characters average is ~202k characters, against a 2,500-character
+budget. The two systems are additive: the built-in carries durable identity and conventions,
+this plugin carries the technical record.
 
 ### Mutation concurrency
 
