@@ -224,12 +224,12 @@ _store_instance = None
 def _import_store_module():
     """Import the LanceDB store MODULE: canonical user copy first, runtime fallback.
 
-    ~/.hermes/plugins/lancedb/store.py (canonical, survives hermes-agent updates)
-    wins over the runtime copy (HERMES_HOME/hermes-agent/plugins/memory/lancedb),
+    ~/.hermes/plugins/lancedb-suite/store.py (canonical, survives hermes-agent updates)
+    wins over the runtime copy (HERMES_HOME/hermes-agent/plugins/memory/lancedb-suite),
     which gets wiped by updates when untracked. Module cached in sys.modules.
     """
     import importlib.util
-    canonical = HERMES_HOME / "plugins" / "lancedb" / "store.py"
+    canonical = HERMES_HOME / "plugins" / "lancedb-suite" / "store.py"
     if canonical.exists():
         import types
         package_name = "lancedb_store_canonical"
@@ -247,8 +247,10 @@ def _import_store_module():
         return mod
     sys.path.insert(0, str(HERMES_HOME / "hermes-agent"))
     try:
-        import plugins.memory.lancedb.store as mod  # type: ignore
-        return mod
+        # The provider directory is `lancedb-suite`, and a literal dotted import cannot
+        # carry a hyphen (SyntaxError), so resolve it by name instead.
+        import importlib
+        return importlib.import_module("plugins.memory.lancedb-suite.store")
     except ImportError:
         raise ImportError("LanceDB store module introuvable (canonical + runtime)")
 

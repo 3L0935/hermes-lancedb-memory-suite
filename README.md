@@ -59,8 +59,8 @@ the exact command that produced them in `audit/repro/`.
 ## Architecture
 
 ```
-~/.hermes/plugins/lancedb/                       <- Canonical plugin copy
-~/.hermes/hermes-agent/plugins/memory/lancedb/   <- Runtime compatibility copy
+~/.hermes/plugins/lancedb-suite/                       <- Canonical plugin copy
+~/.hermes/hermes-agent/plugins/memory/lancedb-suite/   <- Runtime compatibility copy
 ~/.hermes/lancedb/                               <- Persistent LanceDB tables
 ~/.hermes/lancedb-viz/                           <- Deployed visualizer files
 ```
@@ -119,7 +119,7 @@ hermes plugins install 3L0935/hermes-lancedb-memory-suite/plugin
 hermes plugins enable lancedb
 ```
 
-This installs into `~/.hermes/plugins/lancedb/` and pins the revision. Once the entry is
+This installs into `~/.hermes/plugins/lancedb-suite/` and pins the revision. Once the entry is
 accepted into the Hermes plugin catalog you can use the bare name instead:
 
 ```bash
@@ -127,13 +127,13 @@ hermes plugins install lancedb-memory-suite   # after catalog admission
 ```
 
 **From a checkout (development).** Bundled-first discovery means the gateway reads
-`~/.hermes/hermes-agent/plugins/memory/lancedb/`, not the user plugin directory, so a local
+`~/.hermes/hermes-agent/plugins/memory/lancedb-suite/`, not the user plugin directory, so a local
 checkout has to be synced to both copies:
 
 ```bash
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-for D in "$HERMES_HOME/plugins/lancedb" \
-         "$HERMES_HOME/hermes-agent/plugins/memory/lancedb"; do
+for D in "$HERMES_HOME/plugins/lancedb-suite" \
+         "$HERMES_HOME/hermes-agent/plugins/memory/lancedb-suite"; do
   mkdir -p "$D"
   cp plugin/{store.py,memory_contract.py,__init__.py,plugin.yaml} "$D/"
 done

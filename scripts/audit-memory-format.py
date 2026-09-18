@@ -24,18 +24,18 @@ def _candidate_contract_paths() -> list[Path]:
     ]
     # Container layout: the memory plugin is reachable through the mount.
     for base in (
-        Path("/home/hermes/.hermes/hermes-agent/plugins/memory/lancedb"),
-        Path("/home/hermes/.hermes/plugins/lancedb"),
+        Path("/home/hermes/.hermes/hermes-agent/plugins/memory/lancedb-suite"),
+        Path("/home/hermes/.hermes/plugins/lancedb-suite"),
         Path("/app/plugin"),
     ):
         candidates.append(base / "memory_contract.py")
     # The operator's canonical plugin copy, independent of HERMES_HOME overrides.
-    candidates.append(Path.home() / ".hermes" / "plugins" / "lancedb" / "memory_contract.py")
+    candidates.append(Path.home() / ".hermes" / "plugins" / "lancedb-suite" / "memory_contract.py")
     env_home = os.environ.get("HERMES_HOME")
     if env_home:
         home = Path(env_home)
-        candidates.append(home / "plugins" / "lancedb" / "memory_contract.py")
-        candidates.append(home / "hermes-agent" / "plugins" / "memory" / "lancedb" / "memory_contract.py")
+        candidates.append(home / "plugins" / "lancedb-suite" / "memory_contract.py")
+        candidates.append(home / "hermes-agent" / "plugins" / "memory" / "lancedb-suite" / "memory_contract.py")
     return candidates
 
 

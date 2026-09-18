@@ -360,7 +360,7 @@ class LanceDBMemoryProvider(MemoryProvider):
 
     @property
     def name(self) -> str:
-        return "lancedb"
+        return "lancedb-suite"
 
     def is_available(self) -> bool:
         try:
@@ -400,9 +400,9 @@ class LanceDBMemoryProvider(MemoryProvider):
         if config_path.exists():
             with open(config_path, encoding="utf-8-sig") as f:
                 existing = yaml.safe_load(f) or {}
-        existing.setdefault("memory", {}).setdefault("lancedb", {})
+        existing.setdefault("memory", {}).setdefault("lancedb-suite", {})
         for k, v in values.items():
-            existing["memory"]["lancedb"][k] = v
+            existing["memory"]["lancedb-suite"][k] = v
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(existing, f, default_flow_style=False)
 
@@ -818,7 +818,7 @@ def register(ctx) -> None:
         if config_path.exists():
             with open(config_path, encoding="utf-8-sig") as f:
                 all_config = yaml.safe_load(f) or {}
-            config = cfg_get(all_config, "memory", "lancedb", default={}) or {}
+            config = cfg_get(all_config, "memory", "lancedb-suite", default={}) or {}
     except Exception:
         pass
 

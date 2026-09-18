@@ -25,8 +25,8 @@ a fix. No step asks you to guess.
 ## Architecture
 
 ```
-~/.hermes/plugins/lancedb/                      <- Canonical user plugin (survives Hermes updates)
-~/.hermes/hermes-agent/plugins/memory/lancedb/  <- Runtime copy (bundled-first discovery order)
+~/.hermes/plugins/lancedb-suite/                      <- Canonical user plugin (survives Hermes updates)
+~/.hermes/hermes-agent/plugins/memory/lancedb-suite/  <- Runtime copy (bundled-first discovery order)
 ~/.hermes/lancedb/                              <- Database: 4 LanceDB tables
 ~/.hermes/lancedb-viz/                          <- Deployed visualizer (server.py, maintenance.py, static/, scripts/)
 ```
@@ -37,7 +37,7 @@ Hermes source-tree updates; the runtime copy exists because bundled-first
 discovery wins when both are present.
 
 **The repository is the source of truth.** Never patch a deployed file
-(`~/.hermes/lancedb-viz/`, `~/.hermes/plugins/lancedb/`) directly: the next
+(`~/.hermes/lancedb-viz/`, `~/.hermes/plugins/lancedb-suite/`) directly: the next
 deploy overwrites it and the fix disappears. Patch the repository, deploy, then
 compare hashes.
 
@@ -226,12 +226,12 @@ that started before a deploy keeps the old module in memory.
 ### The deployed plugin is empty after a Hermes update
 
 Hermes updates can clean untracked files in `~/.hermes/hermes-agent/`. The
-canonical copy at `~/.hermes/plugins/lancedb/` survives, and its discovery is
+canonical copy at `~/.hermes/plugins/lancedb-suite/` survives, and its discovery is
 the fallback. Restore the runtime copy and restart the gateway:
 
 ```bash
-cp ~/.hermes/plugins/lancedb/{store.py,memory_contract.py,__init__.py,plugin.yaml} \
-   ~/.hermes/hermes-agent/plugins/memory/lancedb/
+cp ~/.hermes/plugins/lancedb-suite/{store.py,memory_contract.py,__init__.py,plugin.yaml} \
+   ~/.hermes/hermes-agent/plugins/memory/lancedb-suite/
 systemctl --user restart hermes-gateway
 ```
 

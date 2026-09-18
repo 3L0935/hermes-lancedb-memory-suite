@@ -1,4 +1,4 @@
-name: lancedb
+name: lancedb-suite
 version: 1.4.0
 description: "LanceDB vector memory — zero-footprint local memory with entity extraction, linking, Ollama embeddings, and interactive graph visualization."
 python_dependencies:

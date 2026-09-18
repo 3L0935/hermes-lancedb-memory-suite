@@ -25,7 +25,11 @@ try:
     from plugin.store import LanceDBStore, MemoryPatch
 except ImportError:  # Installed script fallback.
     sys.path.insert(0, HERMES_AGENT)
-    from plugins.memory.lancedb.store import LanceDBStore, MemoryPatch
+    # The provider directory is `lancedb-suite`; a literal dotted import cannot carry a
+    # hyphen (SyntaxError), so resolve the module by name.
+    import importlib
+    _store_mod = importlib.import_module("plugins.memory.lancedb-suite.store")
+    LanceDBStore, MemoryPatch = _store_mod.LanceDBStore, _store_mod.MemoryPatch
 
 
 def find_duplicate_groups(store: LanceDBStore, threshold: float = 0.92) -> list[list[dict]]:

@@ -23,8 +23,8 @@ class DeployContractTests(unittest.TestCase):
         script = (ROOT / "scripts" / "deploy-local.sh").read_text()
         unit = (ROOT / "systemd" / "lancedb-viz.service").read_text()
 
-        self.assertIn('CANONICAL="$HERMES_HOME/plugins/lancedb"', script)
-        self.assertIn('RUNTIME="$HERMES_AGENT_HOME/plugins/memory/lancedb"', script)
+        self.assertIn('CANONICAL="$HERMES_HOME/plugins/lancedb-suite"', script)
+        self.assertIn('RUNTIME="$HERMES_AGENT_HOME/plugins/memory/lancedb-suite"', script)
         self.assertIn('VIZ="$HERMES_HOME/lancedb-viz"', script)
         self.assertIn("store.py memory_contract.py __init__.py plugin.yaml", script)
         self.assertIn("lancedb-viz.service", script)

@@ -37,11 +37,13 @@ docs/            Setup guide + skill references
 
 ### Plugin (store.py, __init__.py)
 
-The plugin runs inside Hermes' venv. Test imports after any change:
+The plugin runs inside Hermes' venv. Test imports after any change — the provider
+directory is `lancedb-suite`, and a literal dotted import cannot carry a hyphen
+(SyntaxError), so resolve it by name:
 
 ```bash
 cd ~/.hermes/hermes-agent
-venv/bin/python -c "from plugins.memory.lancedb import LanceDBMemoryProvider; print('OK')"
+venv/bin/python -c "import importlib; print(importlib.import_module('plugins.memory.lancedb-suite').LanceDBMemoryProvider().name)"
 ```
 
 ### Visualizer (server/ + static/)

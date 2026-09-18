@@ -204,8 +204,8 @@ Both memories remain intact. Updating a claim closes stale open conflicts and re
 Verify both copies and restart the gateway:
 
 ```bash
-diff -u plugin/store.py ~/.hermes/plugins/lancedb/store.py
-diff -u plugin/store.py ~/.hermes/hermes-agent/plugins/memory/lancedb/store.py
+diff -u plugin/store.py ~/.hermes/plugins/lancedb-suite/store.py
+diff -u plugin/store.py ~/.hermes/hermes-agent/plugins/memory/lancedb-suite/store.py
 systemctl --user restart hermes-gateway.service
 ```
 

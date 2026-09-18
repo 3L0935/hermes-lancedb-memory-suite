@@ -37,8 +37,8 @@ check "conflicts returns an array" sh -c "curl -fsS '$BASE_URL/api/conflicts?sta
 check "typed edges have IDs" sh -c "curl -fsS '$BASE_URL/api/typed-edges' | python3 -c 'import json,sys; edges=json.load(sys.stdin).get(\"edges\", []); assert isinstance(edges, list); assert all(e.get(\"from\") and e.get(\"to\") for e in edges)'"
 check "static app.js served" curl -fsS -o /dev/null "$BASE_URL/static/app.js"
 check "static graph.js served" curl -fsS -o /dev/null "$BASE_URL/static/graph.js"
-check "canonical plugin synced" diff -q "$ROOT/plugin/store.py" "$HERMES_HOME/plugins/lancedb/store.py"
-check "runtime plugin synced" diff -q "$ROOT/plugin/store.py" "$HERMES_HOME/hermes-agent/plugins/memory/lancedb/store.py"
+check "canonical plugin synced" diff -q "$ROOT/plugin/store.py" "$HERMES_HOME/plugins/lancedb-suite/store.py"
+check "runtime plugin synced" diff -q "$ROOT/plugin/store.py" "$HERMES_HOME/hermes-agent/plugins/memory/lancedb-suite/store.py"
 
 MEM_COUNT=$(curl -fsS "$BASE_URL/api/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('total_memories','?'))" 2>/dev/null || printf '?')
 printf '\n  Memories stored: %s\n' "$MEM_COUNT"

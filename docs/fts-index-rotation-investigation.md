@@ -197,5 +197,5 @@ a positive score, and the same row is still returned after the refresh.
   re-calibrated. A corpus change that moves must-abstain or answerable scores
   still requires a new calibration run.
 - Deploying the writer change to the gateway requires a copy to
-  `~/.hermes/plugins/lancedb/` and a gateway restart outside this run. The
+  `~/.hermes/plugins/lancedb-suite/` and a gateway restart outside this run. The
   deployed plugin still holds the pre-change writer.
