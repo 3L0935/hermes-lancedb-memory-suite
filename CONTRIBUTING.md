@@ -3,8 +3,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/3L0935/hermes-lancedb-viz.git
-cd hermes-lancedb-viz
+git clone https://github.com/3L0935/hermes-lancedb-memory-suite.git
+cd hermes-lancedb-memory-suite
 ```
 
 You need Hermes Agent, Ollama, and Docker. See [docs/setup.md](docs/setup.md) for the full guide.

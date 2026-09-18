@@ -1637,11 +1637,14 @@ def api_get_conflicts(params: dict) -> list:
 def _audit_script_path() -> Path | None:
     """Locate the read-only audit script, or None if this deployment lacks it.
 
-    The script lives in the repository's scripts/ directory. Only server.py,
-    maintenance.py and static/ are mounted into the container, so scripts/ is absent
-    there unless it is explicitly shipped. The previous version fell back to a
-    candidate path whether or not it existed, so the import failed with a bare
-    "[Errno 2] No such file or directory" naming a path that was never going to exist.
+    The deployed copy is authoritative: deploy-local.sh ships scripts/ next to
+    server.py, so the first two candidates resolve in every supported
+    deployment (container and systemd fallback) without touching a checkout.
+    The parent directory is kept for running server.py straight from a source
+    tree. No candidate points outside the deployment or the checkout it is
+    running from: the previous last-resort fallback guessed a $HOME/github path
+    by name, which broke silently whenever the repository was renamed and never
+    worked for anyone else.
     """
     server_dir = Path(__file__).resolve().parent
     candidates = (
@@ -1652,12 +1655,6 @@ def _audit_script_path() -> Path | None:
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    # Last resort: the canonical source tree, when running outside the container.
-    env_home = os.environ.get("HERMES_HOME")
-    if env_home:
-        fallback = Path(env_home).parent / "github" / "hermes-lancedb-viz" / "scripts" / "audit-memory-format.py"
-        if fallback.is_file():
-            return fallback
     return None
 
 

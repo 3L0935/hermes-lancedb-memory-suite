@@ -25,7 +25,7 @@
 ## Safety and verification harness
 
 - [x] Confirm `HEAD=4f04106332b1a8ce889c593095a3637ec893a4b1` and a clean tree.
-- [x] Run baseline with `PYTHONPATH=/home/elo/github/hermes-lancedb-viz:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests`; expect `120 passed`.
+- [x] Run baseline with `PYTHONPATH=/home/elo/github/hermes-lancedb-memory-suite:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests`; expect `120 passed`.
 - [x] Read the required architecture, hardening plan, and reproduction artifacts in order.
 - [x] Measure density by direct projected Arrow read with `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`; verify the live table version is unchanged.
 - [x] Keep reproducible measurements and decisions under ignored `audit/repro/`; never instantiate `LanceDBStore` against the live path.

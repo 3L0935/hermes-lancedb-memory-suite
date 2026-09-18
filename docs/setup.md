@@ -14,7 +14,7 @@ is a recovery fallback.
 
 ```bash
 ollama pull nomic-embed-text
-cd ~/github/hermes-lancedb-viz
+cd ~/github/hermes-lancedb-memory-suite
 "$HOME/.hermes/hermes-agent/venv/bin/pip" install -r requirements.txt
 ```
 
@@ -45,7 +45,7 @@ repository:
 cd ~/github/hermes-hub/services/lancedb-viz
 docker compose up -d
 
-cd ~/github/hermes-lancedb-viz
+cd ~/github/hermes-lancedb-memory-suite
 ./scripts/deploy-local.sh --dry-run
 ./scripts/deploy-local.sh
 ```
@@ -100,7 +100,7 @@ the old threshold or embedder.
 ```bash
 cd ~/github/hermes-hub/services/lancedb-viz
 docker compose ps
-cd ~/github/hermes-lancedb-viz
+cd ~/github/hermes-lancedb-memory-suite
 curl -fsS http://127.0.0.1:7777/api/stats | python3 -m json.tool
 curl -fsS http://127.0.0.1:7777/api/health | python3 -m json.tool
 curl -fsS 'http://127.0.0.1:7777/api/conflicts?status=open' | python3 -m json.tool
@@ -141,7 +141,7 @@ calibration, not as a comparable measurement.
 Run the retention harness only through a disposable `/tmp` fixture:
 
 ```bash
-cd ~/github/hermes-lancedb-viz
+cd ~/github/hermes-lancedb-memory-suite
 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 OLLAMA_HOST=http://127.0.0.1:11434 \
 "$HOME/.hermes/hermes-agent/venv/bin/python" \

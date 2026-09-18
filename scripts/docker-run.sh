@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# hermes-lancedb-viz — quick build + run
+# hermes-lancedb-memory-suite — quick build + run
 # Usage: ./scripts/docker-run.sh [--rebuild]
 
 IMAGE="lancedb-viz:local"

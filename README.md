@@ -1,12 +1,14 @@
-# Hermes LanceDB Memory — Plugin + Visualizer
+# Hermes LanceDB Memory Suite
 
 Local-first vector memory for [Hermes Agent](https://github.com/nousresearch/hermes-agent).
-SQLite-free, LanceDB-only storage with Ollama embeddings, entity extraction,
-hybrid search (BM25 + vector), and an interactive web dashboard.
+LanceDB-only storage with Ollama embeddings, entity extraction, hybrid search
+(BM25 + vector), and an interactive web dashboard. No server, no daemon, no API
+key, and no data leaving your machine.
 
 ## What this is
 
-A complete memory system for Hermes Agent that persists across sessions:
+A complete memory system for Hermes Agent that persists across sessions, not a
+visualizer with a plugin attached:
 
 - **Plugin** (`plugin/`) - LanceDB memory provider for Hermes. 8 MCP tools:
   search, add, update, delete, get, list, graph, conflicts. Auto entity extraction,
@@ -17,8 +19,42 @@ A complete memory system for Hermes Agent that persists across sessions:
   Dashboard, Memories, Timeline, Tags, Duplicates, Conflicts, Review, Embeddings,
   Clusters, Stale, and Graph. [See the screenshots](#visualizer).
 - **Scripts** (`scripts/`) - relation migration, contradiction backfill,
-  re-embedding, duplicate consolidation, and verification.
-- **Docs** (`docs/`) - Setup guide and memory writing reference.
+  re-embedding, duplicate consolidation, deployment, and verification.
+- **Audit harness** (`audit/repro/`) - the retrieval retention gate, write-cost
+  measurement, and frozen calibration baselines behind the numbers below.
+- **Docs** (`docs/`) - setup guide, the versioned write contract, measured
+  investigations, and the skill references.
+
+## Why LanceDB
+
+- **Embedded, not served.** LanceDB is a Rust columnar format on disk. There is no
+  server and no daemon to supervise, and the database is a directory you can copy.
+- **Native hybrid search.** BM25 (Tantivy FTS) and vector cosine fused through
+  Reciprocal Rank Fusion, in the engine. No separate search stack to run.
+- **Fully local embeddings.** `nomic-embed-text` (768-dim) through Ollama. No API
+  call, no key, no corpus leaving the machine.
+- **Versioned writes.** Every write is an MVCC version, and superseded versions can
+  be compacted on demand. One measured reclaim went from 157.8 MB to 2.9 MB.
+- **Engine-specific calibration is treated as real.** BM25 scores change between
+  LanceDB releases, so the abstention threshold is pinned to `lancedb==0.34.0` and
+  every search response reports the running engine beside the calibrated one.
+
+## Numbers on a real database
+
+Measured on the author's live instance (not a fixture):
+
+| Metric | Value |
+|--------|-------|
+| Memories | 543 |
+| Entities | 1,708 |
+| Typed edges | 234 |
+| Semantic edges | 1,880 |
+| Tables | 4 (`memories`, `memory_edges`, `memory_conflicts`, `memory_conflicts_archive`) |
+| Footprint | 20 MB total, 13.2 MB of table data |
+
+Retrieval gate, frozen final split: recall@5 0.76 (lexical control) to 0.85
+(corrected hybrid), no-answer false results 1.0 to 0.0. Both are documented with
+the exact command that produced them in `audit/repro/`.
 
 ## Architecture
 
@@ -122,7 +158,7 @@ imported module while the container serves the new code.
 cd "$HOME/github/hermes-hub/services/lancedb-viz"
 docker compose up -d
 
-cd "$HOME/github/hermes-lancedb-viz"
+cd "$HOME/github/hermes-lancedb-memory-suite"
 ./scripts/deploy-local.sh --dry-run
 ./scripts/deploy-local.sh
 systemctl --user restart hermes-gateway
@@ -522,7 +558,7 @@ fixture below `/tmp`; it never benchmarks by writing the real database. Run it
 with the pinned host environment and record the engine with every measurement:
 
 ```bash
-cd "$HOME/github/hermes-lancedb-viz"
+cd "$HOME/github/hermes-lancedb-memory-suite"
 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 OLLAMA_HOST=http://127.0.0.1:11434 \
 "$HOME/.hermes/hermes-agent/venv/bin/python" \
@@ -605,6 +641,31 @@ Behavior:
 - Merges tags from all duplicates into the keeper
 - Deletes duplicates with exact content match (safe auto-merge)
 - Skips duplicates with different content (needs manual review)
+
+## Testing
+
+Hermes supplies the provider base classes, so tests run against a Hermes
+checkout. Replace `/path/to/hermes-agent` with that checkout:
+
+```bash
+PYTHONPATH=$PWD:/path/to/hermes-agent \
+  /path/to/hermes-agent/venv/bin/python -m pytest -q tests
+node --check static/app.js
+node --check static/graph.js
+```
+
+268 tests pass on a clean checkout. Ollama, the visualizer container, and a live
+database are not required: tests build temporary synthetic data. The suite covers
+the write contract, store links and retention, write budgets, auto-merge,
+migration scripts, the FTS and disk-growth invariants, server security, and the
+frontend modules through `node --test`.
+
+Two invariants worth knowing before you change retrieval:
+
+- Tests must not read source files as text to assert on their shape, and they
+  must not freeze values that are expected to change.
+- The retrieval gate judges frozen absolute targets, because a same-run baseline
+  can be flipped by adding a single memory with no code change.
 
 ## Docker deployment
 

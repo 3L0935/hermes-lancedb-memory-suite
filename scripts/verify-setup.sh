@@ -24,7 +24,7 @@ check() {
   fi
 }
 
-echo "=== hermes-lancedb-viz smoke test ==="
+echo "=== hermes-lancedb-memory-suite smoke test ==="
 if [[ "$VIZ_MODE" == "systemd" ]]; then
   check "systemd fallback active" systemctl --user is-active --quiet lancedb-viz.service
 else
