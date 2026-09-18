@@ -5,6 +5,17 @@ LanceDB-only storage with Ollama embeddings, entity extraction, hybrid search
 (BM25 + vector), and an interactive web dashboard. No server, no daemon, no API
 key, and no data leaving your machine.
 
+## Philosophy
+
+A working system with a small footprint, not a product with a roadmap. Those
+negations are the design, not a starting point to grow past: "light" is a
+constraint, so anything that needs a second service, a background worker, or
+an LLM call on the read path did not get in. Accuracy is aimed where it
+changes a decision rather than where it scores best. The retrieval gate
+prefers abstaining to answering, the write contract refuses to merge two
+same-subject memories, and every number in this README comes with the command
+that produced it.
+
 ## What this is
 
 A complete memory system for Hermes Agent that persists across sessions, not a
