@@ -94,7 +94,7 @@ class FakeStore:
             "success": True, "count": 0, "results": [], "route": "hybrid",
             "degraded": False, "degraded_reason": "", "abstained": True,
             "abstention_reason": "below_calibrated_evidence",
-            "message": "aucun résultat fiable",
+            "message": "no reliable result passed calibrated evidence",
             "timings": {"embedding_ms": 0.0, "search_ms": 1.0},
         }
 

@@ -56,7 +56,7 @@ class RecordingStore:
             "degraded_reason": "",
             "abstained": True,
             "abstention_reason": "below_calibrated_evidence",
-            "message": "aucun résultat fiable",
+            "message": "no reliable result passed calibrated evidence",
             "timings": {"embedding_ms": 0.0, "search_ms": 1.0},
         }
 
@@ -191,7 +191,7 @@ class ProviderFormattingTests(unittest.TestCase):
         ))
 
         self.assertNotIn("query", payload)
-        self.assertEqual("aucun résultat fiable", payload["message"])
+        self.assertEqual("no reliable result passed calibrated evidence", payload["message"])
 
     def test_update_handler_uses_typed_patch_and_echoes_replaced_content(self):
         payload = json.loads(self.provider.handle_tool_call(

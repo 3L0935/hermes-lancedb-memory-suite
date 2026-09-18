@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from agent.memory_provider import MemoryProvider
+from agent.memory_provider import MemoryProvider, RecallStatus
 from tools.registry import tool_error
 
 from .memory_contract import MemoryContractError, MemoryPatch, MemoryWrite
@@ -354,6 +354,8 @@ class LanceDBMemoryProvider(MemoryProvider):
         self._config = config or {}
         self._store = None
         self._db_path = None
+        # Count injected by the LAST prefetch, consumed by recall_status().
+        self._last_recall_count = 0
 
     @property
     def name(self) -> str:
@@ -450,6 +452,7 @@ class LanceDBMemoryProvider(MemoryProvider):
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        self._last_recall_count = 0
         if not self._store or not query:
             return ""
         try:
@@ -467,10 +470,35 @@ class LanceDBMemoryProvider(MemoryProvider):
                 if rels:
                     rel_str = " →rels: " + ", ".join(f"{rel.get('type','?')}={rel.get('target','?')}" for rel in rels)
                 lines.append(f"[{cat}] ({score:.2f} q={quality:.2f}) {content}{rel_str}")
+            self._last_recall_count = len(results)
             return "## LanceDB Memory\n" + "\n".join(lines)
         except Exception as e:
             logger.debug("LanceDB prefetch failed: %s", e)
             return ""
+
+    def recall_status(self) -> RecallStatus | None:
+        """Deterministic recall indicator. Reflects only the LAST prefetch: the count is
+        reset at the top of prefetch(), so a turn that injected nothing stays silent."""
+        if not self._last_recall_count:
+            return None
+        return RecallStatus(provider_label="LanceDB", count=self._last_recall_count)
+
+    def identity_signature(self) -> Dict[str, Any]:
+        """Busts a cached gateway agent when the writer identity changes.
+
+        Called on an UNINITIALIZED instance on every inbound message, so this only
+        reads the deployed manifest version from disk and never touches the store.
+        """
+        version = ""
+        try:
+            import yaml
+            from pathlib import Path
+            manifest = Path(__file__).resolve().parent / "plugin.yaml"
+            if manifest.is_file():
+                version = str((yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("version") or "")
+        except Exception as e:
+            logger.debug("identity_signature version read failed: %s", e)
+        return {"lancedb_version": version}
 
     def sync_turn(self, user_content: str, assistant_content: str, *,
                   session_id: str = "", messages: list | None = None) -> None:

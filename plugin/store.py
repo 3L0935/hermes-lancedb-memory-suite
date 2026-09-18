@@ -2654,7 +2654,7 @@ class LanceDBStore:
             "degraded_reason": degraded_reason,
             "abstained": not results,
             "abstention_reason": abstention_reason,
-            "message": "aucun résultat fiable" if not results else "results found",
+            "message": "no reliable result passed calibrated evidence" if not results else "results found",
             "timings": {
                 "embedding_ms": round(embedding_ms, 3),
                 "search_ms": round(elapsed_ms, 3),

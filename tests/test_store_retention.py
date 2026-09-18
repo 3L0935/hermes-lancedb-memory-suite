@@ -764,7 +764,7 @@ class StoreRetentionTests(unittest.TestCase):
         self.assertEqual([], outcome["results"])
         self.assertTrue(outcome["abstained"])
         self.assertEqual("below_calibrated_evidence", outcome["abstention_reason"])
-        self.assertEqual("aucun résultat fiable", outcome["message"])
+        self.assertEqual("no reliable result passed calibrated evidence", outcome["message"])
 
     def test_exact_path_is_retrieved_without_embedding(self):
         memory_id = self.add("Project:Alpha path=/tmp/Alpha [Tier=2]")

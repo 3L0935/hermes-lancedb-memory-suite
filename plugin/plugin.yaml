@@ -1,3 +1,10 @@
 name: lancedb
-version: 1.2.0
+version: 1.3.0
 description: "LanceDB vector memory — zero-footprint local memory with entity extraction, linking, Ollama embeddings, and interactive graph visualization."
+python_dependencies:
+  # The retrieval gate (BM25 threshold / abstention) is calibrated against the score
+  # produced by THIS lancedb version: identical rows and identical code score
+  # differently across versions. Bump it only with a re-calibration.
+  - "lancedb==0.34.0"
+  - "numpy>=1.26.0,<3"
+  - "pyyaml>=6.0,<7"
