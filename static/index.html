@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?11">
+<link rel="stylesheet" href="/static/style.css?12">
 </head>
 <body>
 
@@ -253,9 +253,10 @@
         <div id="controls">
           <div class="ctl-row ctl-main">
             <input type="text" id="search" placeholder="Search memories or Enter for semantic..." />
-            <button id="filters-toggle" type="button" aria-expanded="false" aria-controls="ctl-filters">
+            <button id="filters-toggle" type="button" aria-expanded="true" aria-controls="ctl-filters">
               <span class="filters-dot" aria-hidden="true"></span>
-              <span class="filters-label">Filters</span>
+              <span class="filters-label">Hide filters</span>
+              <svg class="filters-chevron" width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5l4 4 4-4"/></svg>
             </button>
           </div>
           <div id="ctl-filters" class="ctl-row ctl-filters">
@@ -340,7 +341,7 @@
 <script src="/static/graph.js?9"></script>
 <script src="/static/embedding-health-cache.js?1"></script>
 <script src="/static/app.js?9"></script>
-<script src="/static/responsive.js?2"></script>
+<script src="/static/responsive.js?3"></script>
 
 </body>
 </html>

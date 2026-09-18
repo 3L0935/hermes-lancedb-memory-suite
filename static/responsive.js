@@ -98,9 +98,10 @@
   window.toggleNav = function () { setNavOpen(!body.classList.contains('nav-open')); };
 
   // ── 4. Panneau de filtres du graphe (telephone) ──────────────────────────
-  // Sur telephone, les filtres replies tiennent la carte a l'ecran. Le bouton
-  // porte un point d'etat pour qu'un filtre actif reste visible meme replie :
-  // sinon on oublie qu'un filtre est pose et le graphe parait faux.
+  // Sur telephone les filtres sont VISIBLES par defaut ; le bouton sert a les
+  // replier pour degager la carte. Il porte un point d'etat pour qu'un filtre
+  // actif reste visible meme replie : sinon on oublie qu'un filtre est pose et
+  // le graphe parait faux.
   var DEFAULT_FILTERS = {
     'cat-filter': '',
     'cluster-mode': 'raw',
@@ -133,17 +134,31 @@
     btn.setAttribute('data-active', filtersDirty() ? 'true' : 'false');
   }
 
-  function toggleFilters(force) {
+  function setFiltersCollapsed(collapsed) {
     var panel = document.getElementById('ctl-filters');
     var btn = document.getElementById('filters-toggle');
     if (!panel || !btn) return;
-    var open = typeof force === 'boolean' ? force : !panel.classList.contains('open');
-    panel.classList.toggle('open', open);
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) scheduleRefit();
+    // Le panneau est ouvert par defaut : on pilote la classe `collapsed` et non
+    // une classe `open`, pour que l'etat initial soit correct avant tout JS.
+    panel.classList.toggle('collapsed', !!collapsed);
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    var label = btn.querySelector('.filters-label');
+    if (label) label.textContent = collapsed ? 'Show filters' : 'Hide filters';
+    scheduleRefit();
   }
 
-  window.toggleFilters = toggleFilters;
+  function toggleFilters(force) {
+    var panel = document.getElementById('ctl-filters');
+    if (!panel) return;
+    var collapsed = typeof force === 'boolean' ? force : !panel.classList.contains('collapsed');
+    setFiltersCollapsed(collapsed);
+  }
+
+  // Compat : les appels historiques passaient `true` pour OUVRIR.
+  window.toggleFilters = function (open) {
+    toggleFilters(typeof open === 'boolean' ? !open : undefined);
+  };
+  window.setFiltersCollapsed = setFiltersCollapsed;
 
   var filtersBtn = document.getElementById('filters-toggle');
   if (filtersBtn) filtersBtn.addEventListener('click', function () { toggleFilters(); });
@@ -204,7 +219,6 @@
     window.switchPage = function (name) {
       var r = originalSwitch.apply(this, arguments);
       if (body.classList.contains('nav-open')) setNavOpen(false);
-      if (name !== 'graph') toggleFilters(false);
       measureTopbar();
       if (name === 'graph') scheduleRefit();
       return r;

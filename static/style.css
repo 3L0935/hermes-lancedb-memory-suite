@@ -216,6 +216,9 @@ body {
 .ctl-row { display: contents; }
 #filters-toggle { display: none; }
 .filters-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--indigo); box-shadow: 0 0 7px rgba(99,102,241,0.5); }
+/* Chevron du bouton replier : pointe en bas quand les filtres sont caches,
+   en haut quand ils sont visibles. Le sens suit ce que le clic va faire. */
+.filters-chevron { flex: 0 0 auto; transition: transform 0.18s ease; }
 
 /* Typed relations are one control: activation, type, and color language. */
 #typed-relation-control {
@@ -867,19 +870,37 @@ input[type=range] { height: 4px; accent-color: var(--indigo); cursor: pointer; }
   .ctl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
   .ctl-main { flex: 1 1 100%; }
   #controls .ctl-main input[type=text] { flex: 1 1 auto; order: 0; min-width: 0; }
+  /* Le bouton replier doit se lire comme un bouton, pas comme une etiquette :
+     bordure marquee, fond teinte, chevron qui indique le sens. */
   #filters-toggle {
     display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
-    min-height: 34px; padding: 5px 10px;
-    border: 1px solid var(--border); border-radius: 7px;
-    background: #0d0d1b; color: var(--accent); font-size: 11px; cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    min-height: 38px; padding: 6px 12px;
+    border: 1px solid #4338ca; border-radius: 8px;
+    background: rgba(99,102,241,0.12); color: var(--accent-soft);
+    font-family: 'Fira Sans', sans-serif; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.2px; cursor: pointer;
+    box-shadow: 0 0 10px rgba(99,102,241,0.18), inset 0 0 8px rgba(99,102,241,0.05);
+    transition: border-color 0.15s, color 0.15s, background 0.15s, box-shadow 0.15s;
   }
-  #filters-toggle[data-active="true"] { border-color: #4338ca; color: var(--accent-soft); }
-  #filters-toggle[data-active="true"] .filters-dot { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.6); }
-  #filters-toggle[aria-expanded="false"] .filters-dot { opacity: 0.5; box-shadow: none; }
-  /* Les filtres ne s'affichent que sur demande. */
-  #ctl-filters { display: none; }
-  #ctl-filters.open { display: flex; }
+  #filters-toggle:hover, #filters-toggle:focus-visible {
+    border-color: var(--indigo); color: #fff;
+    box-shadow: 0 0 16px rgba(99,102,241,0.32), inset 0 0 10px rgba(99,102,241,0.08);
+  }
+  /* Chevron vers le BAS quand les filtres sont caches (le clic va les ouvrir),
+     vers le HAUT quand ils sont visibles (le clic va les replier). */
+  #filters-toggle[aria-expanded="false"] .filters-chevron { transform: rotate(0deg); }
+  #filters-toggle[aria-expanded="true"] .filters-chevron { transform: rotate(180deg); }
+  /* Un filtre pose allume le point en amber, meme quand le panneau est replie. */
+  #filters-toggle[data-active="true"] {
+    border-color: #d97706; color: var(--amber-soft);
+    background: rgba(217,119,6,0.12);
+    box-shadow: 0 0 12px rgba(217,119,6,0.22), inset 0 0 8px rgba(217,119,6,0.05);
+  }
+  #filters-toggle[data-active="true"] .filters-dot { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.7); }
+  /* Les filtres sont VISIBLES par defaut sur telephone : c'est le bouton qui
+     les replie, pas l'inverse. */
+  #ctl-filters { display: flex; }
+  #ctl-filters.collapsed { display: none; }
   .ctl-meta { flex: 1 1 100%; justify-content: space-between; }
   #controls { padding: 8px 12px; gap: 6px; row-gap: 6px; }
   #controls input[type=text] { max-width: none; font-size: 12px; }
