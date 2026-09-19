@@ -5,6 +5,13 @@ LanceDB-only storage with Ollama embeddings, entity extraction, hybrid search
 (BM25 + vector), and an interactive web dashboard. No server, no daemon, no API
 key, and no data leaving your machine.
 
+> **Requires a local Ollama and the `nomic-embed-text` model.**
+> Embeddings are 768-dim and generated locally, so Ollama must be running on
+> `localhost:11434` with that model pulled before the plugin can search or
+> write anything. See [Requirements](#requirements) and
+> [Step 1](#1-install-ollama--embedding-model). There is no hosted fallback:
+> if Ollama is down, retrieval and writes fail closed rather than degrade.
+
 ## Philosophy
 
 A working system with a small footprint, not a product with a roadmap. Those
@@ -103,7 +110,7 @@ model call and no service.
 ## Requirements
 
 - **Hermes Agent** installed and running
-- **Ollama** running on localhost:11434
+- **Ollama** running on localhost:11434 (embeddings only; local, no key)
 - **nomic-embed-text** model pulled: `ollama pull nomic-embed-text`
 - **Python 3.11+** with `lancedb==0.34.0`, `pyarrow`, `httpx`, `numpy`
 - **Docker** for the primary visualizer deployment
