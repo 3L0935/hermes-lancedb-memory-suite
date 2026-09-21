@@ -69,3 +69,23 @@ PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent OPENBLAS_NUM_THREADS=1 OMP_NUM_THREAD
 node --test tests/static_*.test.cjs
 18 passed, 0 failed
 ```
+
+## Deployment verification
+
+The fix was integrated locally as `8f7893b`. The canonical Hub image was rebuilt
+from the synchronized repository requirements and the viz container recreated.
+Only maintenance/server/UI files were deployed; no manual reclaim was invoked.
+
+- Running image: LanceDB 0.34.0, pylance 9.0.0; Docker health: healthy.
+- Seven policy regression tests also passed inside the rebuilt image.
+- Production plan: `recommended=false`, `actions={}`, reclaim estimate `null`.
+- Two timer-script checks returned `not_needed`; the two managed backup names
+  and maintenance-state digest were identical before and after the checks.
+- The systemd maintenance service was then run once and also returned `not_needed`.
+- The hourly maintenance timer remains active.
+
+The previous timer ran once more during preparation, before deployment; the
+production database was 24,441,419 bytes at the final check. This patch does not
+force removal of protected history to make that number immediately smaller.
+The plan reported its next possible cleanup at 2026-09-22 12:04:41 UTC, subject
+to subsequent writes and independent fragmentation needs.
