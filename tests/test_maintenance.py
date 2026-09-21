@@ -1,5 +1,6 @@
 import importlib.util
 import fcntl
+import json
 import os
 import tempfile
 import unittest
@@ -16,11 +17,11 @@ from plugin.store import LanceDBStore
 
 from server.maintenance import (
     MAINTENANCE_MAX_FRAGMENTS,
-    MAINTENANCE_MIN_RECLAIMABLE_BYTES,
     MAINTENANCE_TABLES,
     _active_index_uuids,
     _physical_index_uuids,
     compact_lancedb,
+    collect_health_diagnostics,
     compaction_plan,
     maintenance_lock_path,
 )
@@ -47,6 +48,85 @@ def create_fixture_database(path: Path) -> None:
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_protected_history_empty_indices_and_overhead_do_not_trigger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch('server.maintenance.directory_size', return_value=24 * 1024**2):
+                plan = compaction_plan(root, root / 'backups', estimated_after_bytes=1024,
+                    diagnostics={'tables': {'memories': {
+                        'current_version': 200, 'versions': 100, 'fragments': 18,
+                        'cleanup_eligible_versions': 0}},
+                        'fts': {'orphan_index_directories': 348}})
+            self.assertFalse(plan['recommended'], plan)
+            self.assertEqual({}, plan['actions'])
+
+    def test_expired_history_can_trigger_without_a_new_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backups = root / 'backups'
+            backups.mkdir()
+            (backups / '.lancedb-maintenance-state.json').write_text(json.dumps({
+                'last_success_at': '2026-09-19T00:00:00',
+                'table_versions': {'memories': 200}}))
+            plan = compaction_plan(root, backups, estimated_after_bytes=0,
+                now=lambda: datetime(2026, 9, 21), diagnostics={'tables': {'memories': {
+                    'current_version': 200, 'versions': 100, 'fragments': 18,
+                    'cleanup_eligible_versions': 12}}})
+            self.assertTrue(plan['recommended'], plan)
+            self.assertEqual({'memories': ['cleanup']}, plan['actions'])
+
+    def test_routine_without_useful_work_creates_no_backup_or_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_fixture_database(root / 'db')
+            with patch('server.maintenance.shutil.copytree') as copy:
+                result = compact_lancedb(root / 'db', root / 'backups')
+            self.assertTrue(result['success'], result)
+            self.assertEqual('not_needed', result['action'])
+            copy.assert_not_called()
+            self.assertFalse((root / 'backups').exists())
+
+    def test_history_diagnostics_exclude_current_and_tagged_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'db'
+            create_fixture_database(path)
+            db = lancedb.connect(str(path))
+            table = db.open_table('memories')
+            table.tags.create('protected', table.version)
+            table.add([{'id': 'new', 'content': 'uniquelysearchable'}])
+            with patch('server.maintenance.ROUTINE_HISTORY_RETENTION', timedelta(0)):
+                health = collect_health_diagnostics(path, db, pipeline={},
+                    ollama_probe=lambda: {}, table_names=['memories'])
+            diagnostics = health['tables']['memories']
+            self.assertEqual(len(table.list_versions()) - 2,
+                             diagnostics['cleanup_eligible_versions'])
+
+    def test_cleanup_only_preserves_fts_and_skips_second_backup_after_small_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / 'db'
+            create_fixture_database(path)
+            table = lancedb.connect(str(path)).open_table('memories')
+            tagged_version = table.version
+            table.tags.create('protected', tagged_version)
+            table.add([{'id': 'new', 'content': 'uniquelysearchable'}])
+            fragment_count = len(table.to_lance().get_fragments())
+            with patch('server.maintenance.ROUTINE_HISTORY_RETENTION', timedelta(0)):
+                first = compact_lancedb(path, root / 'backups')
+                self.assertTrue(first['success'], first)
+                self.assertEqual(['cleanup'], first['actions']['memories'])
+                self.assertLessEqual(first['database_delta_bytes'], 0)
+                latest = lancedb.connect(str(path)).open_table('memories')
+                self.assertEqual(fragment_count, len(latest.to_lance().get_fragments()))
+                self.assertEqual('new', latest.search('uniquelysearchable', query_type='fts').to_list()[0]['id'])
+                latest.add([{'id': 'tiny', 'content': 'small subsequent write'}])
+                second = compact_lancedb(path, root / 'backups')
+            self.assertEqual('not_needed', second['action'], second)
+            self.assertEqual(1, len(list((root / 'backups').glob('lancedb-pre-compact-*'))))
+            retained = lancedb.connect(str(path)).open_table('memories')
+            retained.checkout(tagged_version)
+            self.assertEqual(1, retained.count_rows())
+
     def test_active_index_uuid_helper_accepts_dicts_and_attributes(self):
         first = str(uuid4())
         second = str(uuid4())
@@ -129,6 +209,7 @@ class MaintenanceTests(unittest.TestCase):
             result = compact_lancedb(
                 db_path,
                 backups_path,
+                mode="reclaim",
                 now=lambda: datetime(2026, 9, 12, 2, 3, 4),
             )
 
@@ -172,7 +253,7 @@ class MaintenanceTests(unittest.TestCase):
             (orphan / "marker").write_text("must survive")
 
             with patch("server.maintenance.shutil.copytree", side_effect=OSError("copy failed")):
-                result = compact_lancedb(db_path, backups_path)
+                result = compact_lancedb(db_path, backups_path, mode="reclaim")
 
             self.assertFalse(result["success"])
             self.assertEqual("backup", result["failed_step"])
@@ -187,7 +268,7 @@ class MaintenanceTests(unittest.TestCase):
             orphan = db_path / "memories.lance" / "_indices" / str(uuid4())
             orphan.mkdir(parents=True)
 
-            result = compact_lancedb(db_path, backups_path)
+            result = compact_lancedb(db_path, backups_path, mode="reclaim")
 
             self.assertTrue(result["success"], result)
             self.assertTrue(Path(result["backup_created"]).is_dir())
@@ -203,7 +284,7 @@ class MaintenanceTests(unittest.TestCase):
             orphan.mkdir(parents=True)
 
             with patch("server.maintenance._active_index_uuids", return_value=None):
-                result = compact_lancedb(db_path, backups_path)
+                result = compact_lancedb(db_path, backups_path, mode="reclaim")
 
             self.assertTrue(result["success"], result)
             self.assertIsNone(result["orphan_index_directories_removed"]["memories"])
@@ -218,7 +299,7 @@ class MaintenanceTests(unittest.TestCase):
             lock_file = maintenance_lock_path(db_path).open("a+")
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
-                result = compact_lancedb(db_path, backups_path)
+                result = compact_lancedb(db_path, backups_path, mode="reclaim")
             finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
                 lock_file.close()
@@ -238,7 +319,7 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(db_path / ".write.lock", store.mutation_lock_path)
             self.assertEqual(store.mutation_lock_path, maintenance_lock_path(db_path))
             with store.write_batch():
-                result = compact_lancedb(db_path, backups_path)
+                result = compact_lancedb(db_path, backups_path, mode="reclaim")
 
             self.assertFalse(result["success"])
             self.assertEqual("maintenance_lock_busy", result["code"])
@@ -249,18 +330,19 @@ class MaintenanceTests(unittest.TestCase):
             root = Path(tmp)
             db_path = root / "lancedb"
             backups_path = root / "backups"
-            db_path.mkdir()
+            create_fixture_database(db_path)
             (db_path / "data.bin").write_bytes(b"x" * 64)
 
             result = compact_lancedb(
                 db_path,
                 backups_path,
+                mode="reclaim",
                 disk_usage=lambda _path: SimpleNamespace(free=100),
             )
 
             self.assertFalse(result["success"])
             self.assertEqual("disk_space", result["failed_step"])
-            self.assertEqual(128, result["required_combined_bytes"])
+            self.assertEqual(2 * result["size_before_bytes"], result["required_combined_bytes"])
             self.assertFalse(backups_path.exists())
 
     def test_plan_names_backup_and_exact_old_backups_to_purge_without_writing(self):
@@ -280,6 +362,7 @@ class MaintenanceTests(unittest.TestCase):
             plan = compaction_plan(
                 db_path, backups_path,
                 estimated_after_bytes=5,
+                mode="reclaim",
                 now=lambda: datetime(2026, 9, 12, 2, 3, 4),
             )
 
@@ -287,9 +370,9 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(2, len(plan["backups_to_delete"]))
             self.assertTrue(all("lancedb-pre-compact-" in path for path in plan["backups_to_delete"]))
             self.assertEqual(20, plan["size_before_bytes"])
-            self.assertEqual(5, plan["estimated_after_bytes"])
-            self.assertFalse(plan["recommended"])
-            self.assertEqual([], plan["trigger_reasons"])
+            self.assertIsNone(plan["estimated_after_bytes"])
+            self.assertTrue(plan["recommended"])
+            self.assertEqual(["explicit_reclaim"], plan["trigger_reasons"])
 
     def test_plan_recommends_compaction_from_bounded_resource_thresholds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -317,13 +400,13 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(1, len(plan["trigger_reasons"]))
             self.assertIn("memories.fragments", plan["trigger_reasons"][0])
 
-    def test_plan_recommends_only_when_byte_floor_and_ratio_are_both_met(self):
+    def test_overhead_estimate_does_not_promise_reclaim_or_trigger_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             db_path = root / "lancedb"
             backups_path = root / "backups"
             db_path.mkdir()
-            measured = MAINTENANCE_MIN_RECLAIMABLE_BYTES + 4 * 1024 * 1024
+            measured = 20 * 1024 * 1024
             with patch(
                 "server.maintenance.directory_size",
                 side_effect=lambda path: measured if Path(path) == db_path else 0,
@@ -334,11 +417,12 @@ class MaintenanceTests(unittest.TestCase):
                     estimated_after_bytes=4 * 1024 * 1024,
                 )
 
-            self.assertTrue(plan["recommended"])
+            self.assertFalse(plan["recommended"])
+            self.assertIsNone(plan["reclaimable_bytes_estimate"])
             self.assertEqual(measured, plan["database_bytes"])
             self.assertEqual(
                 measured - 4 * 1024 * 1024,
-                plan["reclaimable_bytes_estimate"],
+                plan["overhead_bytes_estimate"],
             )
 
     def test_success_state_enforces_cooldown_and_skips_unchanged_retry(self):
@@ -348,7 +432,7 @@ class MaintenanceTests(unittest.TestCase):
             backups_path = root / "backups"
             create_fixture_database(db_path)
             started = datetime(2026, 9, 12, 2, 3, 4)
-            result = compact_lancedb(db_path, backups_path, now=lambda: started)
+            result = compact_lancedb(db_path, backups_path, mode="reclaim", now=lambda: started)
             self.assertTrue(result["success"], result)
             versions = {
                 name: row["version"] for name, row in result["rows"].items()
@@ -400,7 +484,8 @@ class MaintenanceTests(unittest.TestCase):
             retained_version = int(table.version)
             table.add([{"id": "bbbbbbbb-bbb", "content": "Project:Beta state=active [Tier=2]"}])
 
-            result = compact_lancedb(db_path, backups_path, mode="routine")
+            with patch("server.maintenance.MAINTENANCE_MAX_FRAGMENTS", 1):
+                result = compact_lancedb(db_path, backups_path, mode="routine")
 
             self.assertTrue(result["success"], result)
             self.assertEqual(24 * 60 * 60, result["history_retention_seconds"])
@@ -439,6 +524,7 @@ class MaintenanceTests(unittest.TestCase):
             result = compact_lancedb(
                 db_path,
                 backups_path,
+                mode="reclaim",
                 connect=reject_backup,
                 now=lambda: datetime(2026, 9, 12, 2, 3, 4),
             )

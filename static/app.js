@@ -416,10 +416,25 @@ async function loadReviewInbox() {
 }
 
 function formatBytes(value) {
-  const bytes = Number(value || 0);
+  if (value == null || value === '' || !Number.isFinite(Number(value))) return 'Unknown';
+  const bytes = Number(value);
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KiB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MiB';
+}
+
+function maintenanceSizeChange(maintenance, metric = 'database') {
+  const label = metric === 'database' ? 'Database' : 'Total footprint';
+  let delta = maintenance[metric + '_delta_bytes'];
+  const before = maintenance[metric + '_bytes_before'];
+  const after = maintenance[metric + '_bytes_after'];
+  if (delta == null && before != null && after != null) {
+    delta = after - before;
+  }
+  if (delta == null || !Number.isFinite(Number(delta))) return label + ' change unknown';
+  if (Number(delta) > 0) return '+' + formatBytes(delta) + ' ' + label.toLowerCase() + ' growth';
+  if (Number(delta) < 0) return '−' + formatBytes(-delta) + ' ' + label.toLowerCase() + ' reclaimed';
+  return '0 B ' + label.toLowerCase() + ' change';
 }
 
 // Backup paths are long and the interesting part is at the end. Showing the full
@@ -448,12 +463,12 @@ function renderHealth(data, checkedAt, cacheStored) {
     '<div class="health-card health-last-check"><span>Last check</span><b>' + escapeHtml(checkedLabel) + '</b><small>' + escapeHtml(cacheLabel) + '</small></div>' +
     '<div class="health-card"><span>Pipeline</span><b>' + escapeHtml(pipeline.model || 'unknown') + '</b><small>' + escapeHtml((pipeline.dimension || '?') + 'd · contract v' + (pipeline.version || '?') + ' · ' + (pipeline.metric || '?')) + '</small></div>' +
     '<div class="health-card"><span>FTS</span><b class="health-' + escapeHtmlAttr(fts.state || 'missing') + '">' + escapeHtml(fts.state || 'missing') + '</b><small>' + escapeHtml(fts.num_unindexed_rows ?? 'unknown') + ' unindexed rows</small></div>' +
-    '<div class="health-card"><span>Database</span><b>' + formatBytes(storage.database_bytes) + '</b><small>' + formatBytes(storage.active_bytes_estimate) + ' active estimate · ' + formatBytes(storage.reclaimable_bytes_estimate) + ' reclaimable estimate</small></div>' +
+    '<div class="health-card"><span>Database</span><b>' + formatBytes(storage.database_bytes) + '</b><small>' + formatBytes(storage.active_bytes_estimate) + ' active estimate · ' + formatBytes(storage.overhead_bytes_estimate) + ' overhead estimate</small></div>' +
     '<div class="health-card"><span>Backups</span><b>' + formatBytes(storage.managed_backup_bytes) + '</b><small>' + formatBytes(storage.total_footprint_bytes) + ' database + managed backups</small></div>' +
     '<div class="health-card"><span>Ollama</span><b class="health-' + escapeHtmlAttr(ollama.state || 'error') + '">' + escapeHtml(ollama.state || 'error') + '</b><small>' + escapeHtml(ollama.error || ('HTTP ' + (ollama.status || '?'))) + '</small></div>' +
-    '<div class="health-card"><span>Last maintenance</span><b>' + escapeHtml(lastMaintenance.last_success_at || 'Never') + '</b><small>' + (lastMaintenance.last_success_at ? formatBytes(lastMaintenance.actual_reclaimed_bytes) + ' reclaimed · ' + formatBytes(lastMaintenance.backup_created_bytes) + ' backup' : 'No successful run recorded') + '</small></div>' +
+    '<div class="health-card"><span>Last maintenance</span><b>' + escapeHtml(lastMaintenance.last_success_at || 'Never') + '</b><small>' + (lastMaintenance.last_success_at ? maintenanceSizeChange(lastMaintenance) + ' · ' + maintenanceSizeChange(lastMaintenance, 'total_footprint') + ' · ' + formatBytes(lastMaintenance.backup_created_bytes) + ' backup' : 'No successful run recorded') + '</small></div>' +
     '<div class="health-table"><table class="data-table"><thead><tr><th>Table</th><th>State</th><th>Rows</th><th>Version / history</th><th>Fragments</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' +
-    '<div class="health-estimate">Before maintenance: backup ' + formatBytes(estimate.backup_bytes) + ' · estimated DB after ' + formatBytes(estimate.estimated_after_bytes) + ' · reclaimable ' + formatBytes(estimate.estimated_reclaimable_bytes) + ' (estimate only)</div>';
+    '<div class="health-estimate">Overhead includes retained history and index overhead; it is not an estimate of reclaimable space. Backup estimate before maintenance: ' + formatBytes(estimate.backup_bytes) + '. Database size after maintenance is unknown.</div>';
 }
 
 function restoreCachedHealth() {
@@ -497,7 +512,8 @@ async function loadCompactionPlan() {
       ? (plan.backups_to_delete || []).map(path => '<li><code>' + escapeHtml(shortPath(path)) + '</code></li>').join('')
       : '<li>None</li>';
     content.innerHTML =
-      '<div class="compact-metrics"><span>Database <b>' + formatBytes(plan.database_bytes) + '</b></span><span>Managed backups <b>' + formatBytes(plan.managed_backup_bytes) + '</b></span><span>Total <b>' + formatBytes(plan.total_footprint_bytes) + '</b></span><span>Reclaimable estimate <b>' + formatBytes(plan.reclaimable_bytes_estimate) + '</b></span></div>' +
+      '<div class="compact-metrics"><span>Database <b>' + formatBytes(plan.database_bytes) + '</b></span><span>Managed backups <b>' + formatBytes(plan.managed_backup_bytes) + '</b></span><span>Total <b>' + formatBytes(plan.total_footprint_bytes) + '</b></span><span>Overhead estimate <b>' + formatBytes(plan.overhead_bytes_estimate) + '</b></span></div>' +
+      '<p>Overhead includes retained history and index overhead; it is not an estimate of reclaimable space. Database size after maintenance is unknown.</p>' +
       '<p>Backup to create</p><ul class="compact-paths"><li><code title="' + escapeHtmlAttr(plan.backup_to_create || '') + '">' + escapeHtml(shortPath(plan.backup_to_create)) + '</code></li></ul>' +
       '<p>Old managed backups to delete</p><ul class="compact-paths">' + deleted + '</ul>' +
       '<label class="compact-confirm"><input id="compact-confirm" type="checkbox" onchange="document.getElementById(\'compact-run\').disabled=!this.checked"> I drained old readers and confirm the zero-age reclaim with the verified backup above.</label>' +
@@ -517,7 +533,7 @@ async function runCompaction() {
   const button = document.getElementById('compact-run');
   const output = document.getElementById('compact-result');
   if (!compactionPlanReady || !confirmed?.checked) return;
-  if (!confirm('Create the displayed backup, purge only the listed managed backups, then compact all four tables?')) return;
+  if (!confirm('Create the displayed backup, purge only the listed managed backups, then reclaim eligible database history?')) return;
   button.disabled = true;
   button.textContent = 'Compacting...';
   output.hidden = false;

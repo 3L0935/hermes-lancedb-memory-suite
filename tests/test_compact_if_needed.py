@@ -13,6 +13,14 @@ SPEC.loader.exec_module(compact_if_needed)
 
 
 class CompactIfNeededTests(unittest.TestCase):
+    def test_stale_plan_reports_noop_when_locked_recheck_finds_no_work(self):
+        with patch.object(compact_if_needed, "request_json", side_effect=[
+            {"recommended": True}, {"success": True, "action": "not_needed"}
+        ]):
+            code, report = compact_if_needed.run("http://127.0.0.1:7777")
+        self.assertEqual(0, code)
+        self.assertEqual("not_needed", report["action"])
+
     def test_below_threshold_is_read_only(self):
         plan = {"recommended": False, "trigger_reasons": []}
         with patch.object(compact_if_needed, "request_json", return_value=plan) as request:

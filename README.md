@@ -550,23 +550,43 @@ fragments during an active batch, and the regression suite verifies recall both
 before and after the refresh.
 
 The read-only health response separates database bytes, managed backup bytes,
-their total footprint, estimated active bytes, and estimated reclaimable bytes.
-It also reports retained version count separately from the cumulative current
-version. The plan recommends maintenance above 64 retained versions, 64
-fragments, or 4 unreferenced current-version index directories. It also uses a
-byte trigger when estimated reclaimable space reaches 16 MiB and the database is
-at least four times the estimated active storage.
+their total footprint, estimated active bytes, and estimated overhead. Overhead
+includes retained history and index storage; it is **not** an estimate of what
+can be reclaimed. Reclaimable bytes and post-maintenance size are reported as
+unknown (`null`). Legacy `history_bytes` is an alias for overhead. Physical,
+nonempty and empty index-directory counts are diagnostic only; absence from the
+current version does not prove that an index is unused by retained snapshots.
 
-The starting values can be changed with
-`LANCEDB_MAINTENANCE_MIN_RECLAIMABLE_BYTES`,
-`LANCEDB_MAINTENANCE_MIN_STORAGE_RATIO`,
-`LANCEDB_MAINTENANCE_COOLDOWN_SECONDS`, and
-`LANCEDB_ROUTINE_RETENTION_SECONDS`.
+`lancedb-viz-maintenance.timer` checks hourly. Routine maintenance selects actions
+independently for each table:
 
-`lancedb-viz-maintenance.timer` checks hourly. Routine maintenance keeps 24 hours
-of history and observes a one-hour cooldown; an unchanged table-version snapshot
-does not create another backup. Zero-age cleanup is reserved for an explicit
-reclaim after old readers have drained:
+- Clean expired, untagged, noncurrent versions at most once every 24 hours.
+  The default retention is 24 hours. Expiration can enable cleanup even when
+  no new writes have occurred.
+- Compact fragments only above 64 fragments, with a separate one-hour cooldown.
+  Repeating the same already-compacted table version does not authorize another
+  compaction. Routine maintenance does not rebuild FTS just to fill its coverage.
+
+The plan is rechecked under the writer lock, before backup creation. A skip
+returns `action=not_needed` and creates no backup or maintenance state. Actual
+runs report `action=maintained`, per-table actions and engine statistics, the
+signed `database_delta_bytes` (positive means growth), and the signed change in
+database-plus-backup footprint. A compaction can increase storage while its
+previous files remain protected by retention.
+
+Configure `LANCEDB_MAINTENANCE_CLEANUP_INTERVAL_SECONDS`,
+`LANCEDB_MAINTENANCE_COOLDOWN_SECONDS`, and `LANCEDB_ROUTINE_RETENTION_SECONDS`.
+The old reclaimable-byte/ratio environment thresholds no longer trigger routine
+maintenance. Existing successful-run state is migrated into per-table cooldowns.
+New state timestamps include their UTC offset; naive engine and legacy timestamps
+are interpreted in the process's local timezone.
+
+Split cleanup/compaction uses the public `pylance==9.0.0` API, tested alongside
+`lancedb==0.34.0`. After upgrading dependencies, rebuild the viz image; restarting
+an old image alone is insufficient. Missing dependencies fail before any backup
+or mutation, without falling back to full `optimize()`.
+
+Zero-age cleanup is reserved for an explicit reclaim after old readers have drained:
 
 ```bash
 curl -fsS 'http://127.0.0.1:7777/api/maintenance/compact/plan?mode=reclaim' \

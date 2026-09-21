@@ -21,6 +21,16 @@ cd ~/github/hermes-lancedb-memory-suite
 `requirements.txt` pins `lancedb==0.34.0`. Keep that pin aligned in the host
 venv and Hub image: BM25 scores are engine-specific, so an engine upgrade can
 invalidate the abstention threshold without changing this repository's code.
+Routine cleanup also requires the pinned `pylance==9.0.0`. Sync dependencies and
+rebuild the Hub image whenever `requirements.txt` changes; `docker restart`
+does not install new packages:
+
+```bash
+cp ~/github/hermes-lancedb-memory-suite/requirements.txt \
+  ~/github/hermes-hub/services/lancedb-viz/requirements.txt
+docker compose -f ~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml \
+  up -d --build lancedb-viz
+```
 
 ## 2. Configure Hermes
 

@@ -954,11 +954,12 @@ class VizRetentionTests(unittest.TestCase):
         self.assertEqual(1000, result["storage"]["database_bytes"])
         self.assertEqual(250, result["storage"]["managed_backup_bytes"])
         self.assertEqual(1250, result["storage"]["total_footprint_bytes"])
-        self.assertEqual(600, result["storage"]["reclaimable_bytes_estimate"])
+        self.assertIsNone(result["storage"]["reclaimable_bytes_estimate"])
+        self.assertEqual(600, result["storage"]["overhead_bytes_estimate"])
         self.assertEqual("error", result["ollama"]["state"])
         self.assertEqual("nomic-embed-text", result["pipeline"]["model"])
         self.assertEqual("abc123", result["implementation"]["store_sha256"])
-        self.assertEqual(400, result["maintenance_estimate"]["estimated_after_bytes"])
+        self.assertIsNone(result["maintenance_estimate"]["estimated_after_bytes"])
 
     def test_projection_and_health_ui_distinguish_dependency_error_and_no_data(self):
         html = (ROOT / "static" / "index.html").read_text()

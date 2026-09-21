@@ -3,6 +3,9 @@
 # rows score differently across versions. Pinned here so the container and the
 # host venv cannot drift apart and silently invalidate the calibration.
 lancedb==0.34.0
+# Public cleanup-only and fragment-compaction APIs used by routine maintenance.
+# Tested with the pinned LanceDB version; full optimize() rewrites recent data.
+pylance==9.0.0
 numpy>=1.26.0
 pyarrow>=14.0.0
 pyyaml>=6.0

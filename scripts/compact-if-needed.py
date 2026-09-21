@@ -45,7 +45,7 @@ def run(base_url: str, *, timeout: float = 30.0) -> tuple[int, dict]:
         return 0, {"action": "deferred", "plan": plan, "result": result}
     if result.get("success") is not True:
         return 1, {"action": "failed", "plan": plan, "result": result}
-    return 0, {"action": "compacted", "plan": plan, "result": result}
+    return 0, {"action": result.get("action", "compacted"), "plan": plan, "result": result}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1563,12 +1563,11 @@ def api_get_compaction_plan(mode: str = "routine") -> dict:
     health = api_get_health()
     if health.get("error"):
         return health
-    estimate = health.get("maintenance_estimate", {})
     try:
         return compaction_plan(
             LANCEDB_PATH,
             HERMES_HOME / "backups",
-            estimated_after_bytes=int(estimate.get("estimated_after_bytes") or 0),
+            estimated_after_bytes=int(health.get("storage", {}).get("active_bytes_estimate") or 0),
             diagnostics=health,
             mode=mode,
         )
