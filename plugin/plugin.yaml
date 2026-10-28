@@ -1,10 +1,13 @@
 name: lancedb-suite
-version: 1.5.3
+version: 1.5.4
 description: "LanceDB vector memory — zero-footprint local memory with entity extraction, linking, Ollama embeddings, and interactive graph visualization."
 python_dependencies:
   # The retrieval gate (BM25 threshold / abstention) is calibrated against the score
   # produced by THIS lancedb version: identical rows and identical code score
   # differently across versions. Bump it only with a re-calibration.
-  - "lancedb==0.34.0"
+  # No cp314 wheels and no android wheels: the workspace resolver forks on
+  # sys_platform, so an android split would make the whole workspace
+  # unsatisfiable and PM would evict this plugin (measured 26/10/2026).
+  - "lancedb==0.34.0; sys_platform != 'android'"
   - "numpy>=1.26.0,<3"
   - "pyyaml>=6.0,<7"
