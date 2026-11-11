@@ -43,6 +43,11 @@ MAX_RELATIONS = 20
 MAX_TAGS = 20
 MAX_TAG_CHARS = 80
 CONTRACT_VERSION = 2
+# Soft density guidance (warnings, never rejections). A recalled memory is paid
+# for in the reader's context at every search, so one claim per fact and linked
+# memories beat long prose. The hard caps above stay loose for legacy rows.
+SOFT_MAX_FACT_CHARS = 240
+RELATION_HINT_MIN_FACTS = 3
 
 VALID_CATEGORIES = frozenset({
     "user_pref", "project", "tech", "correction", "fact",
@@ -624,10 +629,12 @@ def canonicalize_unambiguous_legacy_content(
 
 
 def contract_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
+    """Non-blocking advice returned with a successful write, most important first."""
+    issues: list[ContractIssue] = []
     subject = memory.subject.casefold()
     if subject == memory.domain.casefold() or subject in _GENERIC_SUBJECTS:
         suggestion = f"{memory.subject}_<component>_<failure>"
-        return (ContractIssue(
+        issues.append(ContractIssue(
             code="overly_broad_subject",
             field="subject",
             message=(
@@ -636,8 +643,37 @@ def contract_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
             ),
             received=memory.subject,
             expected="component-, bug-, or decision-specific subject",
-        ),)
-    return ()
+        ))
+    long_facts = [
+        (index, len(fact)) for index, fact in enumerate(memory.facts)
+        if len(fact) > SOFT_MAX_FACT_CHARS
+    ]
+    if long_facts:
+        where = ", ".join(f"facts[{index}]={length}" for index, length in long_facts)
+        issues.append(ContractIssue(
+            code="long_fact",
+            field="facts",
+            message=(
+                f"{len(long_facts)} fact(s) over {SOFT_MAX_FACT_CHARS} chars ({where}); every recall "
+                "pays for them. Keep one claim per fact, prefer key=value, and move secondary "
+                "detail to a linked memory"
+            ),
+            received=[length for _, length in long_facts],
+            expected=f"<= {SOFT_MAX_FACT_CHARS} chars per fact",
+        ))
+    if len(memory.facts) >= RELATION_HINT_MIN_FACTS and not memory.relations:
+        issues.append(ContractIssue(
+            code="no_relations",
+            field="relations",
+            message=(
+                f"{len(memory.facts)} facts and no relation: link this memory to its project or "
+                "component (part_of), or to what it replaces (supersedes), using a target_id "
+                "from lancedb_search"
+            ),
+            received=0,
+            expected="at least one typed relation",
+        ))
+    return tuple(issues)
 
 
 def memory_fingerprint(memory: MemoryWrite) -> str:

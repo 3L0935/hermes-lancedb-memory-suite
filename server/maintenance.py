@@ -39,7 +39,13 @@ ROUTINE_HISTORY_RETENTION = timedelta(seconds=_positive_int_env(
 CLEANUP_INTERVAL = timedelta(seconds=_positive_int_env(
     "LANCEDB_MAINTENANCE_CLEANUP_INTERVAL_SECONDS", 24 * 60 * 60
 ))
-MAINTENANCE_MAX_FRAGMENTS = 64
+# Measured on a 729-row store (11/11/2026): 51 fragments doubled vector + FTS
+# query time; compaction takes 0.07 s. A busy vault crosses 16 within days.
+MAINTENANCE_MAX_FRAGMENTS = _positive_int_env("LANCEDB_MAINTENANCE_MAX_FRAGMENTS", 16)
+# Rows written since the last content-FTS build are invisible to the lexical
+# branch of hybrid search (18% of that store): exact names and paths stop
+# matching. Above this share, routine maintenance re-optimizes the index.
+MAINTENANCE_MAX_FTS_UNINDEXED_PCT = _positive_int_env("LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT", 5)
 MAINTENANCE_STATE_FILE = ".lancedb-maintenance-state.json"
 
 
@@ -102,9 +108,15 @@ def _routine_actions(
             continue
         previous = table_state.get(name) or {}
         selected = []
+        fts_lagging = False
+        if name == "memories":
+            unindexed = ((diagnostics.get("fts") or {}).get("num_unindexed_rows")) or 0
+            rows = table.get("rows") or 0
+            fts_lagging = bool(rows) and unindexed * 100 > rows * MAINTENANCE_MAX_FTS_UNINDEXED_PCT
         for action, needed, interval in (
             ("cleanup", (table.get("cleanup_eligible_versions") or 0) > 0, CLEANUP_INTERVAL),
             ("compact", (table.get("fragments") or 0) > MAINTENANCE_MAX_FRAGMENTS, COMPACTION_COOLDOWN),
+            ("reindex", fts_lagging, COMPACTION_COOLDOWN),
         ):
             last = previous.get(f"last_{action}_at")
             ready_at = instant
@@ -117,8 +129,11 @@ def _routine_actions(
                 if action == "cleanup" and table.get("next_history_expiration_at"):
                     upcoming.append(max(ready_at, _utc(table["next_history_expiration_at"])))
                 continue
-            metric = "cleanup_eligible_versions" if action == "cleanup" else "fragments"
-            reasons.append(f"{name}.{metric}={table[metric]}")
+            if action == "reindex":
+                reasons.append(f"{name}.fts_unindexed_rows={(diagnostics.get('fts') or {}).get('num_unindexed_rows')}")
+            else:
+                metric = "cleanup_eligible_versions" if action == "cleanup" else "fragments"
+                reasons.append(f"{name}.{metric}={table[metric]}")
             if ready_at > instant:
                 deferred[f"{name}.{action}"] = "cooldown"
                 upcoming.append(ready_at)
@@ -402,6 +417,7 @@ def compaction_plan(
         "next_eligible_at": next_eligible_at,
         "thresholds": {
             "max_fragments": MAINTENANCE_MAX_FRAGMENTS,
+            "max_fts_unindexed_pct": MAINTENANCE_MAX_FTS_UNINDEXED_PCT,
             "cooldown_seconds": int(COMPACTION_COOLDOWN.total_seconds()),
             "cleanup_interval_seconds": int(CLEANUP_INTERVAL.total_seconds()),
         },
@@ -646,7 +662,9 @@ def _compact_lancedb_locked(
         operation_stats[name] = {}
         for action in selected:
             try:
-                if action == "optimize":
+                if action in {"optimize", "reindex"}:
+                    # optimize() also folds unindexed rows into the FTS index;
+                    # routine mode keeps the 24 h history window.
                     tables[name].optimize(cleanup_older_than=cleanup_older_than)
                     stats = None
                 elif action == "cleanup":
@@ -756,6 +774,8 @@ def _compact_lancedb_locked(
             if action in {"compact", "optimize"}:
                 entry["last_compact_at"] = completed_at.isoformat()
                 entry["compacted_version"] = int(rows[name]["version"])
+            if action == "reindex":
+                entry["last_reindex_at"] = completed_at.isoformat()
         table_maintenance[name] = entry
     managed_backup_bytes = sum(
         directory_size(path) for path in _compaction_backups(backups_path)

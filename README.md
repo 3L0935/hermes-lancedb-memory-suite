@@ -177,16 +177,21 @@ In `~/.hermes/config.yaml`:
 
 ```yaml
 memory:
-  provider: lancedb
-  lancedb:
+  provider: lancedb-suite
+  lancedb-suite:
     db_path: ~/.hermes/lancedb
     embed_model: nomic-embed-text
 ```
 
-`db_path` and `embed_model` are the only settings you normally need. One more exists:
+`hermes memory setup` asks for these. `db_path` and `embed_model` are the only settings you
+normally need; the others tune how the agent uses memory:
 
 | Key | Default | Meaning |
 |-----|---------|---------|
+| `daily_review` | `false` | Create the daily memory review job (see [Daily memory review](#daily-memory-review)). |
+| `daily_review_time` | `13:00` | Local time of that job. |
+| `write_nudge_every` | `8` | Every N user turns, one line reminds the agent to store what it just learned. No store read, no memory content. `0` disables it. |
+| `embed_keep_alive` | `30s` | How long Ollama keeps the embedding model loaded. Every search embeds its query: after this idle time the next search pays a 0.8-2 s model reload. `10m` or `-1` avoid it and hold ~350 MB of VRAM or RAM. |
 | `auto_prefetch` | `false` | Push automatically recalled memories into every turn. See below. |
 
 **Why `auto_prefetch` defaults to off.** Hermes calls `prefetch()` before every non-trivial
@@ -355,6 +360,54 @@ The plugin does not inject memories into your turns by default. Recall happens w
 calls `lancedb_search`, with a deliberate query, and reads the results before using them. See
 `auto_prefetch` under [Configure Hermes](#3-configure-hermes) for the measurement behind that
 default and how to re-enable the push.
+
+What the agent is told instead is *when* to use the tools. The system prompt block is a short
+set of rules: search before answering about a named project, the user's setup or a past
+decision; write without being asked after a correction, a decision, or a config or fix found
+with effort; load the `lancedb-suite:memory-writing` skill before the first write of a
+session. The two skills ship inside the plugin and are registered as `lancedb-suite:<name>`,
+so a catalog install has them (earlier versions kept them in `docs/skills/`, which the catalog
+never installed).
+
+### Compact results
+
+A search returns what answers a question and what lets the agent dig further, nothing else:
+
+```json
+{"id": "6e09f210-7ed", "key": "Hermes:Gateway-Restart", "category": "tech", "tier": 2,
+ "facts": ["Plugin gateway-restart: tool gateway_restart ...", "..."], "more_facts": 5,
+ "relations": ["part_of -> Hermes:Gateway (1a2b3c4d-5e6)"], "match": "hybrid", "age": "today"}
+```
+
+At most 4 facts of 220 characters and 6 relations per result, 6 results by default. On a real
+store that is about a third of the full rows (1.1k against 3k characters for the same query).
+`lancedb_get(id)` returns the whole memory; `view: "full"` returns every stored field and the
+scoring detail, for debugging retrieval. `lancedb_list` follows the same rule.
+
+### Writing small, linked memories
+
+Every stored character is paid again at each recall. The contract still accepts legacy-sized
+memories, but a successful write now comes back with advice when it is not shaped for recall:
+
+| Warning | When |
+|---|---|
+| `long_fact` | a fact is over 240 characters: one claim per fact, `key=value` preferred |
+| `no_relations` | 3 or more facts and no typed relation: link it with `part_of`, `supersedes`... |
+| `overly_broad_subject` | the subject is the domain itself or a generic word |
+
+The relation types have a one-line meaning each in the tool schema and in the skill, so
+`connects_to` stops serving as "related".
+
+### Daily memory review
+
+Writing in the middle of a task competes with the task. The optional daily review is an LLM
+cron job (one agent run per day) that reads the last 24 hours of conversations, stores what was
+learned but never written, updates memories instead of duplicating them, and supersedes the
+ones that turned out wrong. It never edits `MEMORY.md`/`USER.md`, deletes nothing unless you
+allow it, and answers `[SILENT]` when there is nothing to do.
+
+Turn it on with `daily_review: true` during `hermes memory setup`, or schedule it from the
+automation gallery: `/blueprint lancedb-suite:daily-review` (time, deletion policy, delivery).
 
 The built-in `MEMORY.md` / `USER.md` blocks are unaffected and stay injected on every session.
 They are a separate path in the core (`agent/system_prompt.py`, `_memory_parts`) and are not
@@ -571,9 +624,14 @@ independently for each table:
 - Clean expired, untagged, noncurrent versions at most once every 24 hours.
   The default retention is 24 hours. Expiration can enable cleanup even when
   no new writes have occurred.
-- Compact fragments only above 64 fragments, with a separate one-hour cooldown.
-  Repeating the same already-compacted table version does not authorize another
-  compaction. Routine maintenance does not rebuild FTS just to fill its coverage.
+- Compact fragments above 16 fragments (`LANCEDB_MAINTENANCE_MAX_FRAGMENTS`), with a
+  separate one-hour cooldown. Repeating the same already-compacted table version does not
+  authorize another compaction. On a 729-row store, 51 fragments doubled search time.
+- Re-optimize the `memories` table when more than 5% of its rows are missing from the
+  content FTS index (`LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT`). Rows written since the
+  last build are invisible to the lexical half of hybrid search, so exact names and paths
+  stop matching; on the same store 18% were missing and two benchmark answers came back
+  after the reindex.
 
 The plan is rechecked under the writer lock, before backup creation. A skip
 returns `action=not_needed` and creates no backup or maintenance state. Actual

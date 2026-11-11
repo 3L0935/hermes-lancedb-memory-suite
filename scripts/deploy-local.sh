@@ -53,6 +53,14 @@ for file in store.py memory_contract.py __init__.py plugin.yaml; do
   run install -m 0644 "$ROOT/plugin/$file" "$CANONICAL/$file"
   run install -m 0644 "$ROOT/plugin/$file" "$RUNTIME/$file"
 done
+# Skills ship inside the plugin (registered as lancedb-suite:<name>).
+for skill_dir in "$ROOT"/plugin/skills/*/; do
+  name="$(basename "$skill_dir")"
+  for target in "$CANONICAL" "$RUNTIME"; do
+    run install -d "$target/skills/$name"
+    run install -m 0644 "$skill_dir/SKILL.md" "$target/skills/$name/SKILL.md"
+  done
+done
 run install -m 0644 "$ROOT/server/server.py" "$VIZ/server.py"
 # server.py imports maintenance.py (health diagnostics + manual compaction);
 # without it the deployed viz fails to import and serves no new routes.

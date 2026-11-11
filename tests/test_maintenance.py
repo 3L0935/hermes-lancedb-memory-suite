@@ -54,7 +54,7 @@ class MaintenanceTests(unittest.TestCase):
             with patch('server.maintenance.directory_size', return_value=24 * 1024**2):
                 plan = compaction_plan(root, root / 'backups', estimated_after_bytes=1024,
                     diagnostics={'tables': {'memories': {
-                        'current_version': 200, 'versions': 100, 'fragments': 18,
+                        'current_version': 200, 'versions': 100, 'fragments': 12,
                         'cleanup_eligible_versions': 0}},
                         'fts': {'orphan_index_directories': 348}})
             self.assertFalse(plan['recommended'], plan)
@@ -70,7 +70,7 @@ class MaintenanceTests(unittest.TestCase):
                 'table_versions': {'memories': 200}}))
             plan = compaction_plan(root, backups, estimated_after_bytes=0,
                 now=lambda: datetime(2026, 9, 21), diagnostics={'tables': {'memories': {
-                    'current_version': 200, 'versions': 100, 'fragments': 18,
+                    'current_version': 200, 'versions': 100, 'fragments': 12,
                     'cleanup_eligible_versions': 12}}})
             self.assertTrue(plan['recommended'], plan)
             self.assertEqual({'memories': ['cleanup']}, plan['actions'])

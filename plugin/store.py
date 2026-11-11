@@ -142,6 +142,30 @@ class MemoryEmbeddingError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 EMBED_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434") + "/api/embed"
+# How long Ollama keeps the embedding model loaded after a call. Every search
+# embeds its query, so with the default a search after 30 s idle pays the model
+# reload (0.8-2 s). Raise it (e.g. 10m, -1) when VRAM/RAM allows; the provider
+# sets it from memory.lancedb-suite.embed_keep_alive.
+DEFAULT_EMBED_KEEP_ALIVE = "30s"
+
+
+def current_embed_keep_alive() -> str:
+    return os.environ.get("LANCE_EMBED_KEEP_ALIVE", "").strip() or DEFAULT_EMBED_KEEP_ALIVE
+
+
+_EMBED_CLIENT = None
+_EMBED_CLIENT_LOCK = threading.Lock()
+
+
+def _embed_client():
+    """One pooled HTTP client per process: a new connection per call cost ~5 ms."""
+    global _EMBED_CLIENT
+    if _EMBED_CLIENT is None:
+        import httpx
+        with _EMBED_CLIENT_LOCK:
+            if _EMBED_CLIENT is None:
+                _EMBED_CLIENT = httpx.Client(timeout=30)
+    return _EMBED_CLIENT
 EMBED_MODEL = os.environ.get("LANCE_EMBED_MODEL", "nomic-embed-text")
 # Embedding dimension of the default model; recorded as pipeline metadata so a
 # vector written by a different model can be detected instead of silently mixed.
@@ -1318,13 +1342,16 @@ class LanceDBStore:
 
     def _embed(self, text: str) -> np.ndarray:
         """Embed text via Ollama. Returns normalized 768-dim vector."""
-        import httpx
         if len(text) > 4096:
             text = text[:4096]
         try:
-            resp = httpx.post(
+            resp = _embed_client().post(
                 EMBED_URL,
-                json={"model": current_embed_model(), "input": [text], "keep_alive": "30s"},
+                json={
+                    "model": current_embed_model(),
+                    "input": [text],
+                    "keep_alive": current_embed_keep_alive(),
+                },
                 timeout=30,
             )
             resp.raise_for_status()
@@ -2377,8 +2404,14 @@ class LanceDBStore:
         embedding_ms = (time.perf_counter() - embed_started) * 1000
         search_started = time.perf_counter()
         pool = max(20, min(50, top_k * 5))
+        # The vector column is 768 floats per row and is dropped right after:
+        # not reading it halves the vector and FTS query time.
+        columns = [name for name in self._table.schema.names if name != "vector"]
         try:
-            vector_query = self._table.search(vector.tolist()).distance_type("cosine").limit(pool)
+            vector_query = (
+                self._table.search(vector.tolist()).distance_type("cosine")
+                .select([*columns, "_distance"]).limit(pool)
+            )
             if category:
                 predicate = f"category = {_sql_literal(category)}"
                 vector_query = vector_query.where(predicate)
@@ -2387,7 +2420,7 @@ class LanceDBStore:
             logger.error("Search failed: %s", e)
             return []
         try:
-            lexical_query = self._table.search(query, query_type="fts").limit(pool)
+            lexical_query = self._table.search(query, query_type="fts").select([*columns, "_score"]).limit(pool)
             if category:
                 lexical_query = lexical_query.where(
                     f"category = {_sql_literal(category)}"
