@@ -655,10 +655,10 @@ independently for each table:
   separate one-hour cooldown. Repeating the same already-compacted table version does not
   authorize another compaction. On a 729-row store, 51 fragments doubled search time.
 - Re-optimize the `memories` table when more than 5% of its rows are missing from the
-  content FTS index (`LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT`). Rows written since the
-  last build are invisible to the lexical half of hybrid search, so exact names and paths
-  stop matching; on the same store 18% were missing and two benchmark answers came back
-  after the reindex.
+  content FTS index (`LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT`). Those rows are still
+  searched (LanceDB scans unindexed fragments) but slower and scored apart from the indexed
+  set; on the same store 18% were missing, and after compaction plus reindex two benchmark
+  answers came back over the gate.
 
 The plan is rechecked under the writer lock, before backup creation. A skip
 returns `action=not_needed` and creates no backup or maintenance state. Actual

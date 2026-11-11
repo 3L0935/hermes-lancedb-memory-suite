@@ -222,9 +222,11 @@ Routine maintenance (hourly timer, through the viz API) and its env overrides:
 | History kept by routine runs (s) | 86400 | `LANCEDB_ROUTINE_RETENTION_SECONDS` |
 | Version cleanup at most every (s) | 86400 | `LANCEDB_MAINTENANCE_CLEANUP_INTERVAL_SECONDS` |
 
-Fragmentation and FTS lag cost real recall, not only speed: rows written since
-the last FTS build are invisible to the lexical half of hybrid search, so exact
-names and paths stop matching. The database path follows `HERMES_HOME`
+Fragmentation and FTS lag cost recall, not only speed. Rows written since the
+last FTS build are still searched (LanceDB scans unindexed fragments) but slower
+and scored apart from the indexed set; on a store with 51 fragments and 18%
+unindexed rows, compaction plus reindex brought two benchmark answers back over
+the abstention gate. The database path follows `HERMES_HOME`
 (`$HERMES_HOME/lancedb`).
 
 After any change: run the tests, deploy, and verify. A change to retrieval or
@@ -255,7 +257,7 @@ seen in practice:
    Fix: `venv/bin/pip install -r <repo>/requirements.txt`, then restart the gateway.
 2. A missing import in `plugin/__init__.py` (dropped by a rebase or cherry-pick).
    Check the gateway log for
-   `provider 'lancedb' initialize failed: name 'LanceDBStore' is not defined`.
+   `provider 'lancedb-suite' initialize failed: name 'LanceDBStore' is not defined`.
 
 Data is never lost in either case: the store reopens the existing tables.
 

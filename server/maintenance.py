@@ -42,9 +42,11 @@ CLEANUP_INTERVAL = timedelta(seconds=_positive_int_env(
 # Measured on a 729-row store (11/11/2026): 51 fragments doubled vector + FTS
 # query time; compaction takes 0.07 s. A busy vault crosses 16 within days.
 MAINTENANCE_MAX_FRAGMENTS = _positive_int_env("LANCEDB_MAINTENANCE_MAX_FRAGMENTS", 16)
-# Rows written since the last content-FTS build are invisible to the lexical
-# branch of hybrid search (18% of that store): exact names and paths stop
-# matching. Above this share, routine maintenance re-optimizes the index.
+# Rows written since the last content-FTS build are still searched (LanceDB
+# scans unindexed fragments), but slower and scored apart from the indexed set.
+# On a store with 18% unindexed and 51 fragments, optimize() brought two
+# benchmark answers back over the gate. Above this share, routine maintenance
+# re-optimizes the table.
 MAINTENANCE_MAX_FTS_UNINDEXED_PCT = _positive_int_env("LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT", 5)
 MAINTENANCE_STATE_FILE = ".lancedb-maintenance-state.json"
 
