@@ -84,15 +84,16 @@ re-read per request and need no restart.
   read, no memory content, no recall indicator.
 - **Daily review** (optional): an LLM cron job that reads the last 24 hours of
   conversations, stores what was learned, supersedes what turned out wrong, and
-  answers `[SILENT]` otherwise. Created at setup (`daily_review: true`) or from
-  the blueprint `lancedb-suite:daily-review`.
+  answers `[SILENT]` otherwise. Scheduled from the blueprint
+  `lancedb-suite:daily-review` (`/blueprint` in a chat: time, deletion policy,
+  delivery), or by you with the `cronjob` tool using the same prompt, once the
+  user agrees.
 - **Recall stays a tool call**: `auto_prefetch` (push memories into every turn) is
   off by default; an off-topic match spliced into the user message misleads more
   than it helps.
 
 Config keys live under `memory.lancedb-suite` in `config.yaml`: `db_path`,
-`embed_model`, `daily_review`, `daily_review_time`, `write_nudge_every`,
-`embed_keep_alive`, `auto_prefetch`.
+`embed_model`, `write_nudge_every`, `embed_keep_alive`, `auto_prefetch`.
 
 ## Tables and schema
 
@@ -226,7 +227,7 @@ already know, a few at a time, in plain words; skip the rest.
 |---|---|
 | How often will you come back to past work, and on how many projects? | Many projects or long breaks -> keep the write reminder (`write_nudge_every` 8) and suggest the daily review. Occasional use -> `write_nudge_every: 0`. |
 | Should I store things without asking, or check with you first? | "Without asking" -> current rules. "Ask first" -> say so in the user's own instructions (SOUL or equivalent); the plugin has no per-write confirmation switch. |
-| Do you want a daily review of the last 24 hours? When, and may it delete memories? | Yes -> `daily_review: true`, `daily_review_time`, deletion policy `report` (default) or `allow`. It costs one agent run a day. |
+| Do you want a daily review of the last 24 hours? When, and may it delete memories? | Yes -> schedule the blueprint `lancedb-suite:daily-review` with their time and deletion policy, `report` (default) or `allow`. It costs one agent run a day. |
 | Does a local LLM share the GPU with the embedding model? How much VRAM/RAM is free? | Room to spare -> `embed_keep_alive: 10m` or `-1` (no 1-2 s reload per search). Tight -> keep `30s`. |
 | Do searches miss things you know are stored? | Check fragmentation and FTS coverage first (below), then suggest fuller queries or `mode: lexical`; the abstention thresholds are calibrated and only change with a re-run of the benchmark. |
 | Should the visualizer be reachable from your phone or other machines (LAN, Tailscale)? Edit from there, or only read? | `LANCEDB_VIZ_BIND` (`127.0.0.1`, a Tailscale IP, or `0.0.0.0`), plus `LANCEDB_VIZ_TRUSTED_HOSTS` with the tailnet name to allow edits. Recreate the container after a bind change. See the README, "Remote access". |
@@ -275,7 +276,7 @@ Where the knobs are:
 
 Routine maintenance (hourly timer, through the viz API) and its env overrides:
 
-| Trigger | Default | Env |
+| Trigger | Default | Variable |
 |---|---|---|
 | Compact above N fragments | 16 | `LANCEDB_MAINTENANCE_MAX_FRAGMENTS` |
 | Reindex when more than N% of rows are missing from content FTS | 5 | `LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT` |
@@ -374,7 +375,7 @@ Diagnose with the plan endpoint, which reports database bytes, managed backups,
 total footprint and estimated reclaimable bytes separately:
 
 ```bash
-curl -fsS 'http://127.0.0.1:7777/api/maintenance/compact/plan' | python3 -m json.tool
+curl -fsS 'http://127.0.0.1:7777/api/maintenance/compact/plan'
 ```
 
 Apply with an explicit reclaim (requires `confirmed: true`):
@@ -382,7 +383,7 @@ Apply with an explicit reclaim (requires `confirmed: true`):
 ```bash
 curl -fsS -X POST -H 'Content-Type: application/json' \
   --data '{"confirmed":true,"mode":"reclaim"}' \
-  http://127.0.0.1:7777/api/maintenance/compact | python3 -m json.tool
+  http://127.0.0.1:7777/api/maintenance/compact
 ```
 
 Apply budgets space for the full backup and compaction scratch, creates an

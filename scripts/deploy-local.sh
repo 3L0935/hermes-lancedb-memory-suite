@@ -49,7 +49,9 @@ wait_for_http() {
 }
 
 run install -d "$CANONICAL" "$RUNTIME" "$VIZ/static" "$VIZ/scripts" "$(dirname "$UNIT")"
-for file in store.py memory_contract.py __init__.py plugin.yaml; do
+# Every module of the plugin: a fixed list once left hubs.py behind and the
+# provider failed to import after a gateway restart.
+for file in plugin.yaml $(cd "$ROOT/plugin" && ls *.py); do
   run install -m 0644 "$ROOT/plugin/$file" "$CANONICAL/$file"
   run install -m 0644 "$ROOT/plugin/$file" "$RUNTIME/$file"
 done

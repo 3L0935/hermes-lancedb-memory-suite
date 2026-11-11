@@ -26,7 +26,10 @@ class DeployContractTests(unittest.TestCase):
         self.assertIn('CANONICAL="$HERMES_HOME/plugins/lancedb-suite"', script)
         self.assertIn('RUNTIME="$HERMES_AGENT_HOME/plugins/memory/lancedb-suite"', script)
         self.assertIn('VIZ="$HERMES_HOME/lancedb-viz"', script)
-        self.assertIn("store.py memory_contract.py __init__.py plugin.yaml", script)
+        # Every module is deployed, not a fixed list: a list once left hubs.py behind
+        # and the provider could no longer import after a gateway restart.
+        self.assertIn('for file in plugin.yaml $(cd "$ROOT/plugin" && ls *.py); do', script)
+        self.assertIn('"$ROOT"/plugin/skills/*/', script)
         self.assertIn("lancedb-viz.service", script)
         self.assertIn("lancedb-viz-maintenance.timer", script)
         self.assertIn("enable --now lancedb-viz-maintenance.timer", script)

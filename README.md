@@ -192,8 +192,6 @@ normally need; the others tune how the agent uses memory:
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `daily_review` | `false` | Create the daily memory review job (see [Daily memory review](#daily-memory-review)). |
-| `daily_review_time` | `13:00` | Local time of that job. |
 | `write_nudge_every` | `8` | Every N user turns, one line reminds the agent to store what it just learned. No store read, no memory content. `0` disables it. |
 | `embed_keep_alive` | `30s` | How long Ollama keeps the embedding model loaded. Every search embeds its query: after this idle time the next search pays a 0.8-2 s model reload. `10m` or `-1` avoid it and hold ~350 MB of VRAM or RAM. |
 | `auto_prefetch` | `false` | Push automatically recalled memories into every turn. See below. |
@@ -436,8 +434,8 @@ learned but never written, updates memories instead of duplicating them, and sup
 ones that turned out wrong. It never edits `MEMORY.md`/`USER.md`, deletes nothing unless you
 allow it, and answers `[SILENT]` when there is nothing to do.
 
-Turn it on with `daily_review: true` during `hermes memory setup`, or schedule it from the
-automation gallery: `/blueprint lancedb-suite:daily-review` (time, deletion policy, delivery).
+Schedule it from the automation gallery: `/blueprint lancedb-suite:daily-review` (time,
+deletion policy, delivery), or ask the agent, which offers it during a memory health check.
 
 The built-in `MEMORY.md` / `USER.md` blocks are unaffected and stay injected on every session.
 They are a separate path in the core (`agent/system_prompt.py`, `_memory_parts`) and are not

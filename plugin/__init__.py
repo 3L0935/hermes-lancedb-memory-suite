@@ -475,8 +475,10 @@ _CONFLICTS_SCHEMA = {
 
 # Writing during a conversation competes with the task at hand. A daily pass over
 # the last 24 hours catches what was learned but never stored, and tidies what
-# turned out wrong. Offered at setup (memory.lancedb-suite.daily_review) and as
-# the automation blueprint lancedb-suite:daily-review.
+# turned out wrong. Offered as the automation blueprint lancedb-suite:daily-review
+# (/blueprint in a chat); the agent can also schedule it with its cronjob tool.
+# Plugins must not import Hermes internals (catalog rule 9), so setup does not
+# create the job itself.
 DAILY_REVIEW_NAME = "LanceDB daily memory review"
 DAILY_REVIEW_PROMPT = (
     "You are the daily memory reviewer. Curate the LanceDB memory from the user's "
@@ -505,37 +507,6 @@ DAILY_REVIEW_DELETE_POLICIES = {
     "report": "never delete; list deletion candidates in the report",
     "allow": "allowed for exact duplicates and memories made obsolete by a newer one",
 }
-
-
-def _parse_hhmm(value: Any, default: str = "13:00") -> tuple[int, int]:
-    try:
-        hour, minute = str(value or default).strip().split(":", 1)
-        hour_i, minute_i = int(hour), int(minute)
-        if 0 <= hour_i <= 23 and 0 <= minute_i <= 59:
-            return hour_i, minute_i
-    except ValueError:
-        pass
-    hour, minute = default.split(":")
-    return int(hour), int(minute)
-
-
-def ensure_daily_review_job(time_of_day: Any = "13:00", deletes: str = "report") -> dict:
-    """Create the daily review cron job once; an existing job with the same name is kept."""
-    from cron.jobs import create_job, list_jobs
-
-    for job in list_jobs(include_disabled=True):
-        if job.get("name") == DAILY_REVIEW_NAME:
-            return {"created": False, "job_id": job.get("id"), "reason": "already exists"}
-    hour, minute = _parse_hhmm(time_of_day)
-    policy = DAILY_REVIEW_DELETE_POLICIES.get(deletes, DAILY_REVIEW_DELETE_POLICIES["report"])
-    job = create_job(
-        prompt=DAILY_REVIEW_PROMPT.format(deletes=policy),
-        schedule=f"{minute} {hour} * * *",
-        name=DAILY_REVIEW_NAME,
-        deliver="local",
-        skills=["lancedb-suite:memory-writing"],
-    )
-    return {"created": True, "job_id": job.get("id"), "schedule": f"{minute} {hour} * * *"}
 
 
 # ---------------------------------------------------------------------------
@@ -587,22 +558,6 @@ class LanceDBMemoryProvider(MemoryProvider):
                 "default": 8,
             },
             {
-                "key": "daily_review",
-                "description": (
-                    "Create a daily LLM job that reviews the last 24 hours of conversations, "
-                    "stores what was learned but not written, and tidies outdated memories. "
-                    "Costs one agent run per day; silent when there is nothing to do. "
-                    "Manage it later with /cron (or /blueprint lancedb-suite:daily-review)."
-                ),
-                "type": "boolean",
-                "default": False,
-            },
-            {
-                "key": "daily_review_time",
-                "description": "Local time of the daily review (HH:MM), used when daily_review is on.",
-                "default": "13:00",
-            },
-            {
                 "key": "embed_keep_alive",
                 "description": (
                     "How long Ollama keeps the embedding model loaded after a call (e.g. 30s, "
@@ -635,17 +590,6 @@ class LanceDBMemoryProvider(MemoryProvider):
             existing["memory"]["lancedb-suite"][k] = v
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(existing, f, default_flow_style=False)
-        if str(values.get("daily_review", "")).strip().lower() in {"1", "true", "yes", "on"}:
-            try:
-                result = ensure_daily_review_job(values.get("daily_review_time") or "13:00")
-                if result.get("created"):
-                    print(f"  Daily memory review scheduled ({result['schedule']}, job {result['job_id']}).")
-                else:
-                    print(f"  Daily memory review already scheduled (job {result.get('job_id')}).")
-            except Exception as error:  # never fail the setup over the optional job
-                logger.warning("Daily memory review not scheduled: %s", error)
-                print("  Could not schedule the daily review automatically; add it with "
-                      "/blueprint lancedb-suite:daily-review.")
 
     def initialize(self, session_id: str, **kwargs) -> None:
         from pathlib import Path
@@ -1099,6 +1043,9 @@ class LanceDBMemoryProvider(MemoryProvider):
 # ---------------------------------------------------------------------------
 
 
+_BLUEPRINT_REGISTERED = False  # the host calls register() for every agent it builds
+
+
 def register(ctx) -> None:
     """Register the LanceDB memory provider with Hermes plugin system."""
     from hermes_cli.config import cfg_get
@@ -1137,7 +1084,9 @@ def register(ctx) -> None:
                 logger.debug("LanceDB skill %s not registered: %s", name, error)
 
     register_blueprint = getattr(ctx, "register_automation_blueprint", None)
-    if callable(register_blueprint):
+    global _BLUEPRINT_REGISTERED
+    if callable(register_blueprint) and not _BLUEPRINT_REGISTERED:
+        _BLUEPRINT_REGISTERED = True
         try:
             register_blueprint(
                 "daily-review",
