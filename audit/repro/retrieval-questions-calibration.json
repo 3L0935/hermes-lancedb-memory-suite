@@ -12,7 +12,7 @@
   "questions": [
     {"id":"cal-01","language":"fr","category":"project_name","query":"Que sais-tu du projet GlassForge ?","expected_ids":["f6f1b4d7-b2e"],"avoid_ids":[],"expect_abstain":false},
     {"id":"cal-02","language":"en","category":"id","query":"f6f1b4d7-b2e","expected_ids":["f6f1b4d7-b2e"],"avoid_ids":[],"expect_abstain":false},
-    {"id":"cal-03","language":"fr","category":"exact_path","query":"Quel projet utilise exactement ~/github/nightlight-enhanced/ ?","expected_ids":["797d9644-b77"],"avoid_ids":[],"expect_abstain":false},
+    {"id":"cal-03","language":"fr","category":"exact_path","query":"Quel projet utilise exactement le dossier nightlight-enhanced/ ?","expected_ids":["797d9644-b77"],"avoid_ids":[],"expect_abstain":false},
     {"id":"cal-04","language":"en","category":"config","query":"Which CrowdWhisper Analyzer entry sets port=8080?","expected_ids":["95cb71fe-22d"],"avoid_ids":["a836b833-44b"],"expect_abstain":false},
     {"id":"cal-05","language":"fr","category":"paraphrase","query":"Quelle correction réduit le poids du serveur vault-mcp en remplaçant sentence-transformers ?","expected_ids":["4b6449e2-fa7"],"avoid_ids":[],"expect_abstain":false},
     {"id":"cal-06","language":"en","category":"dependency","query":"Which BloodReaver project memory declares a dependency on Unity?","expected_ids":["81b8f203-16f","31d957f9-faa"],"avoid_ids":[],"expect_abstain":false},
