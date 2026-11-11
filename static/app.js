@@ -650,7 +650,21 @@ async function loadEmbedding() {
   canvas.height = 500;
   const nNeighbors = document.getElementById('emb-neighbors').value;
   const minDist = document.getElementById('emb-mindist').value;
-  setEl('emb-count', 'Loading...');
+  setEl('emb-count', 'Computing…');
+  // UMAP runs server-side and takes seconds: say so over the empty canvas.
+  // Moving a slider starts a new run; only the latest one may draw.
+  const run = (loadEmbedding.run = (loadEmbedding.run || 0) + 1);
+  let busy = container.querySelector('.scatter-busy');
+  if (!busy) {
+    busy = document.createElement('div');
+    busy.className = 'scatter-busy';
+    busy.setAttribute('role', 'status');
+    container.appendChild(busy);
+  }
+  busy.innerHTML = '<div class="spinner"></div><div>Computing the UMAP projection…</div><small>neighbors ' + escapeHtml(nNeighbors) + ' · min dist ' + escapeHtml(minDist) + ' · usually a few seconds</small>';
+  busy.hidden = false;
+  container.classList.add('is-busy');
+  const done = () => { if (run === loadEmbedding.run) { busy.hidden = true; container.classList.remove('is-busy'); } };
 
   try {
     const projection = await fetchJsonWithBusyRetry(
@@ -662,6 +676,8 @@ async function loadEmbedding() {
         ),
       },
     );
+    if (run !== loadEmbedding.run) return;
+    done();
     const stateMessages = {
       dependency_missing: 'Projection unavailable: umap-learn is not installed.',
       no_data: 'No projection: at least 3 valid embeddings are required.',
@@ -724,12 +740,12 @@ async function loadEmbedding() {
       for (const pt of pointData) { if ((mx-pt.x)**2 + (my-pt.y)**2 < 100) { showMemoryDetail(pt.id); return; } }
     };
   } catch(e) {
-    setEl(
-      'emb-count',
-      e instanceof BusyHttpError
-        ? e.message
-        : 'Projection request failed: ' + e.message,
-    );
+    if (run !== loadEmbedding.run) return;
+    const msg = e instanceof BusyHttpError ? e.message : 'Projection request failed: ' + e.message;
+    setEl('emb-count', msg);
+    busy.innerHTML = '<div class="error-state">' + escapeHtml(msg) + '</div>';
+    busy.hidden = false;
+    container.classList.remove('is-busy');
   }
 }
 

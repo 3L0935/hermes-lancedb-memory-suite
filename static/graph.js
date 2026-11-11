@@ -170,18 +170,22 @@ function renderGraph() {
           hover: visual.color,
           opacity: 0.72,
         },
-        width: 1.35,
+        width: 1.4,
         dashes: false,
+        // Horizontal labels: text rotated along the edge was unreadable on
+        // steep links. The arrowhead is sized to be seen at the default zoom,
+        // and the line stops at its base instead of running through it.
         font: {
           color: visual.color,
-          size: 8,
-          strokeWidth: 2,
-          strokeColor: '#0D0B14',
-          background: 'rgba(13,11,20,0.78)',
-          align: 'middle',
+          size: 9,
+          face: 'Geist Mono, ui-monospace, monospace',
+          strokeWidth: 0,
+          background: 'rgba(13,11,20,0.85)',
+          align: 'horizontal',
         },
-        arrows: {to: {enabled: true, scaleFactor: 0.38}},
-        smooth: {type: 'curvedCW', roundness: 0.08},
+        arrows: {to: {enabled: true, type: 'arrow', scaleFactor: 0.65}},
+        arrowStrikethrough: false,
+        smooth: {type: 'curvedCW', roundness: 0.12},
       };
     }
     return {

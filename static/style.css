@@ -211,7 +211,7 @@ body[data-group="hygiene"] .lens-set[data-group="hygiene"] { display: flex; }
 #typed-relation-control[data-family="off"] .relation-control-dot { opacity: 0.55; }
 #typed-relation-control #relation-filter {
   height: 100%; min-width: 150px; padding: 0 24px 0 10px;
-  border: 0; border-radius: 0; background: var(--s1);
+  border: 0; border-radius: 0; background-color: var(--s1);
   color: var(--text);
 }
 #typed-relation-control #relation-filter:focus { border: 0; box-shadow: none; }
@@ -469,11 +469,21 @@ a.chip:hover { border-color: var(--acc); color: var(--text); }
 /* ─── Form elements ─── */
 input[type=text], input[type=number], input[type=search], select, textarea {
   height: 32px; padding: 0 10px; border-radius: var(--r);
-  border: 1px solid var(--line2); background: var(--s1);
+  border: 1px solid var(--line2); background-color: var(--s1);
   color: var(--text); font: 13px var(--font);
   outline: none; transition: border-color 0.15s;
 }
-select { padding-right: 8px; }
+/* Native selects drew the OS chevron and a light popup on some systems:
+   one flat chevron, dark option list. */
+select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 30px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23ADA8BF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+}
+select:hover { border-color: var(--line3); }
+select option, select optgroup { background: var(--s1); color: var(--text); }
+select:disabled { cursor: not-allowed; }
 input::placeholder, textarea::placeholder { color: var(--mute); }
 input:focus, select:focus, textarea:focus { border-color: var(--acc); }
 textarea { height: auto; padding: 8px 10px; resize: vertical; min-height: 80px; font: 12px/1.5 var(--mono); }
@@ -581,6 +591,16 @@ input[type=checkbox] { accent-color: var(--acc); }
 .scatter-container canvas { width: 100%; height: 100%; }
 .scatter-tooltip { position: absolute; display: none; max-width: 300px; background: var(--bg-elev); border: 1px solid var(--line2); border-radius: var(--r); padding: 10px 12px; font-size: 12px; pointer-events: none; z-index: 50; }
 #emb-legend { margin-bottom: 0 !important; }
+/* Projection in progress: centred status over the (dimmed) previous plot. */
+.scatter-busy {
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--dim); font-size: 13px; text-align: center; padding: 16px;
+}
+.scatter-busy[hidden] { display: none; }
+.scatter-busy small { font: 11px var(--mono); color: var(--mute); }
+.scatter-busy .spinner { width: 24px; height: 24px; border: 2px solid var(--line2); border-top-color: var(--acc); border-radius: 50%; animation: spin 0.7s linear infinite; margin-bottom: 8px; }
 
 /* ─── Scrollbar ─── */
 * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
