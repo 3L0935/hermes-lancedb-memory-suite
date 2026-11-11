@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections import deque
+from collections import Counter, deque
 from contextlib import contextmanager
 import fcntl
 from functools import wraps
@@ -56,6 +56,9 @@ SEARCH_MIN_BM25_SCORE = 12.80
 # constant names that engine so a mismatch is reportable instead of silent.
 SEARCH_CALIBRATED_ENGINE = "lancedb==0.34.0"
 SEARCH_NEIGHBOR_BUDGET = 5
+# A memory that this many others declare part_of is a hub. A hub found by a search
+# is a table of contents: its children fill the remaining result slots.
+HUB_MIN_CHILDREN = 3
 SEARCH_DIAGNOSTIC_HISTORY_LIMIT = 100
 PROJECTION_MAX_POINTS = 500
 CLUSTER_RANDOM_SEED = 42
@@ -2605,6 +2608,45 @@ class LanceDBStore:
             diagnostics["hidden_neighbors"] = max(0, len(candidates) - budget)
         return results
 
+    def _hub_ids(self) -> set[str]:
+        children = Counter(
+            str(edge.get("to")) for edge in self.get_typed_edges()
+            if edge.get("to") and str(edge.get("relation_type")) == "part_of"
+        )
+        return {memory_id for memory_id, count in children.items() if count >= HUB_MIN_CHILDREN}
+
+    def _expand_hub_children(self, results: list[dict], top_k: int,
+                             category: str | None = None, *,
+                             neighbor_budget: int = SEARCH_NEIGHBOR_BUDGET,
+                             diagnostics: dict | None = None) -> list[dict]:
+        """When a direct result is a hub, fill the free slots with its relations.
+
+        Direct results keep their rank and the abstention gate is untouched: only
+        empty slots are filled, and nothing is added when nothing passed the gate.
+        """
+        try:
+            hubs = self._hub_ids()
+        except Exception as error:  # an unreadable edge table must not fail the search
+            logger.debug("hub expansion skipped: %s", error)
+            return results
+        seeds = [memory for memory in results if str(memory.get("id")) in hubs]
+        if not seeds:
+            return results
+        expanded = self._expand_relation_context(
+            seeds, len(seeds) + (top_k - len(results)), category,
+            neighbor_budget=neighbor_budget, diagnostics=diagnostics,
+        )
+        seen = {str(memory.get("id")) for memory in results}
+        for neighbor in expanded[len(seeds):]:
+            if len(results) >= top_k:
+                break
+            if str(neighbor.get("id")) in seen:
+                continue
+            neighbor["retrieval_source"] = "hub"
+            results.append(neighbor)
+            seen.add(str(neighbor.get("id")))
+        return results
+
     def get_search_diagnostics(self) -> list[dict]:
         return list(self._search_diagnostics)
 
@@ -2663,6 +2705,11 @@ class LanceDBStore:
                     results = self._expand_relation_context(
                         results, top_k, category,
                         neighbor_budget=neighbor_budget,
+                        diagnostics=relation_diagnostics,
+                    )
+                elif relation_depth > 0 and results and len(results) < top_k:
+                    results = self._expand_hub_children(
+                        results, top_k, category, neighbor_budget=neighbor_budget,
                         diagnostics=relation_diagnostics,
                     )
 

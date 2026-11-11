@@ -402,6 +402,32 @@ memories, but a successful write now comes back with advice when it is not shape
 The relation types have a one-line meaning each in the tool schema and in the skill, so
 `connects_to` stops serving as "related".
 
+### Hubs: one per project, a star of `part_of`
+
+Retrieval works best when every project has one short hub memory and every memory about the
+project declares `part_of` that hub; a family of projects (all the mods of one game, all the
+subsystems of an agent) gets an umbrella hub above them. Two levels at most.
+
+- **Writing**: `lancedb_add` without relations answers with `suggested_relations`, the
+  existing hubs that match the subject (`Projet:Quock` for `Projet:Quock_Build`). Never
+  written automatically; the agent confirms with `lancedb_update`.
+- **Searching**: when a direct result is a hub (3+ memories declare `part_of` to it), its
+  children fill the free result slots. Direct results keep their rank and an abstaining
+  search stays empty, so the calibration is unaffected. On a real store, "kanban
+  dispatcher" went from 1 result to 6 and recovered the memory a new hub had displaced.
+- **An existing store**: `scripts/propose-hubs.py` groups memories by project (the domain
+  when it names one, like `BO3:`, else the first word of the subject; never shared
+  entities, which produced mostly wrong edges), proposes the hub of each group or a hub to
+  create, and writes a JSON plan to review and edit. `--apply plan.json` backs up the
+  database, creates the hubs and only *adds* `part_of` relations. Run maintenance right
+  after: rewritten rows leave the FTS index until compaction, and lexical scores dip.
+
+```bash
+scripts/propose-hubs.py --db-path ~/.hermes/lancedb --out hub-plan.json   # read-only
+# review / edit hub-plan.json
+scripts/propose-hubs.py --db-path ~/.hermes/lancedb --apply hub-plan.json
+```
+
 ### Daily memory review
 
 Writing in the middle of a task competes with the task. The optional daily review is an LLM

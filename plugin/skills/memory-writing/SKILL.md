@@ -1,7 +1,7 @@
 ---
 name: memory-writing
 description: How to write LanceDB memories that come back when needed - when to write, the shape (small, linked), updates, relations, and the contract's traps. Load before the first lancedb_add or lancedb_update of a session.
-version: 10.1.0
+version: 10.2.0
 triggers:
   - lancedb_add
   - lancedb_update
@@ -65,6 +65,36 @@ detail means rewriting the whole block.
   keep the same defect as one 2,000-character fact. Split into hub + children.
 - **Link instead of repeating.** A memory with 3+ facts and no relation comes
   back with `no_relations`.
+
+## Hub structure: one hub per project, a star of part_of
+
+Retrieval is cheapest when every project has one hub and every memory about it
+points there:
+
+```
+Projet:Hermes            (umbrella: a family of projects or subsystems)
+  <- Hermes:Kanban       (hub of one project / subsystem)
+       <- Hermes:Kanban-dispatcher-singleton   (memories: part_of their hub)
+       <- Hermes:Kanban-worker-toolsets
+  <- Hermes:Gateway
+```
+
+- **Two levels at most.** Memory -> project hub -> umbrella hub when several
+  projects form a family (all the BO3 mods, all Hermes subsystems).
+- **A hub is short**: what the project is, and its parts. Children carry the
+  detail. Name it after the project (`Projet:Quock`), not after an operation
+  (`Tech:Cleanup_14-09_Hub` is a sub-hub of its project, not the project's hub).
+- **Every new memory about a project gets `part_of` its hub.** When you write
+  without relations, the response may carry `suggested_relations` (existing hubs
+  that match the subject); check them and confirm with `lancedb_update`.
+- **No hub yet and the project has 3+ memories?** Create the hub, then link the
+  memories to it.
+- A search that finds a hub also returns its children in the remaining slots, so
+  a well-linked hub makes a vague query land on the right memories.
+
+`scripts/propose-hubs.py` builds a reviewable plan for an existing store (which
+hub each loose memory belongs to, which hubs to create) and applies it after
+review, backup first.
 
 ## Choose the tool
 

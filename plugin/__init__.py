@@ -19,6 +19,7 @@ from typing import Any, Dict, List
 from agent.memory_provider import MemoryProvider, RecallStatus
 from tools.registry import tool_error
 
+from .hubs import suggest_hubs
 from .memory_contract import (
     MemoryContractError,
     MemoryPatch,
@@ -407,7 +408,7 @@ def compact_memory(memory: dict) -> dict:
         out["relations"] = rendered[:COMPACT_MAX_RELATIONS]
         if len(rendered) > COMPACT_MAX_RELATIONS:
             out["more_relations"] = len(rendered) - COMPACT_MAX_RELATIONS
-    if memory.get("retrieval_source") == "relation":
+    if memory.get("retrieval_source") in {"relation", "hub"}:
         out["via"] = (
             f"{memory.get('relation_type')} ({memory.get('relation_direction')}) "
             f"of {memory.get('relation_seed_id')}"
@@ -488,7 +489,8 @@ DAILY_REVIEW_PROMPT = (
     "effort, a lasting preference. Task progress, one-off edits and chatter are not.\n"
     "3. lancedb_search before writing. Update the existing memory (lancedb_update) rather "
     "than adding a near-duplicate; otherwise add a small memory linked with typed "
-    "relations.\n"
+    "relations, part_of its project hub (create the hub if the project has 3+ memories and "
+    "none). Memories written in the last 24 hours without a part_of get one too.\n"
     "4. Tidy what you met on the way: a memory proven wrong gets a newer memory that "
     "supersedes or invalidates it; open conflicts you can settle get lancedb_conflicts "
     "resolve with a note. Deleting memories: {deletes}.\n"
@@ -876,10 +878,27 @@ class LanceDBMemoryProvider(MemoryProvider):
             result["potential_conflicts"] = potential_conflicts
             result["conflicts"] = potential_conflicts
             result["normalized_fields"] = _normalized_write_fields(memory)
+            if not memory.relations and result.get("status") in {"created", "idempotent"}:
+                suggestions = self._suggest_relations(memory, memory_id)
+                if suggestions:
+                    # Never written automatically: the agent confirms with lancedb_update.
+                    result["suggested_relations"] = suggestions
             result["message"] = f"Memory {result['status']}: {result['canonical_content'][:80]}..."
             return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as error:
             return _write_error(error)
+
+    def _suggest_relations(self, memory: MemoryWrite, memory_id: str) -> list[dict]:
+        """Existing hubs this memory probably belongs to, from its subject. Read-only."""
+        try:
+            return suggest_hubs(
+                memory.domain, memory.subject,
+                self._store.get_all(), self._store.get_typed_edges(),
+                exclude_id=memory_id,
+            )
+        except Exception as error:
+            logger.debug("relation suggestion skipped: %s", error)
+            return []
 
     def _handle_graph(self, args: dict) -> str:
         try:

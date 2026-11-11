@@ -1,7 +1,7 @@
 ---
 name: lancedb-memory-system
 description: "LanceDB memory architecture, deployment, and how to change it - including how to tailor it to its user by asking before changing behaviour."
-version: 7.2.0
+version: 7.3.0
 triggers:
   - "memory setup"
   - "tune memory"
@@ -191,6 +191,11 @@ short token does not clear 12.80 and the cosine distance stays above 0.30. Use
 the full `Domain:Subject`, more tokens, or explicit lexical mode. An abstaining
 compact search returns a `hint` saying so.
 
+**Hub expansion.** When a direct result is a hub (3+ memories declare
+`part_of` to it), its relations fill the free result slots, marked
+`via: part_of (incoming) of <hub id>`. Direct results keep their rank, and an
+abstaining search stays empty, so the calibration is unaffected.
+
 **What the agent receives.** `lancedb_search` and `lancedb_list` return compact
 rows by default: `id`, `key`, `category`, `tier`, up to 4 facts of 220
 characters, up to 6 relations as `type -> target (id)`, `match` or `via`, and
@@ -238,6 +243,9 @@ already know, a few at a time, in plain words; skip the rest.
 3. `curl -fsS http://127.0.0.1:7777/api/review` - format drift, contradictions,
    broken references (read-only).
 4. `lancedb_conflicts` - open conflicts waiting for a decision.
+4b. `scripts/propose-hubs.py --out plan.json` - how many memories have no hub,
+   which projects lack one. Applying the plan rewrites rows: run maintenance
+   (compaction + reindex) right after, or lexical scores dip until it runs.
 5. A few `lancedb_search` calls on topics the user cares about: do the right
    memories come back?
 
@@ -431,6 +439,7 @@ reason, timings, and the calibrated-versus-running engine check.
 | `migrate-memory-format.py` | Dry-run-only row classification |
 | `migrate_graph_retention.py` | Backfill concrete relation target IDs, build the conflict ledger |
 | `reembed-entries.py` | Re-embed after batch content edits (Ollama must be running) |
+| `propose-hubs.py` | Plan a hub structure (one hub per project, part_of star) and apply it after review, backup first |
 | `auto-merge-duplicates.py` | Detect and merge near-duplicate memories (dry-run by default) |
 | `compact-if-needed.py` | Trigger bounded maintenance through the API |
 
