@@ -1,7 +1,7 @@
 ---
 name: lancedb-memory-system
 description: "LanceDB memory architecture, deployment, and how to change it."
-version: 6.0.0
+version: 7.0.0
 triggers:
   - "lancedb memory"
   - "vector memory"
@@ -25,7 +25,7 @@ a fix. No step asks you to guess.
 ## Architecture
 
 ```
-~/.hermes/plugins/lancedb-suite/                      <- Canonical user plugin (survives Hermes updates)
+~/.hermes/plugins/lancedb-suite/                      <- Canonical user plugin (survives Hermes updates), with skills/
 ~/.hermes/hermes-agent/plugins/memory/lancedb-suite/  <- Runtime copy (bundled-first discovery order)
 ~/.hermes/lancedb/                              <- Database: 4 LanceDB tables
 ~/.hermes/lancedb-viz/                          <- Deployed visualizer (server.py, maintenance.py, static/, scripts/)
@@ -43,11 +43,13 @@ compare hashes.
 
 ## Deployment
 
-The visualizer runs as the `lancedb-viz` Docker container on `127.0.0.1:7777`,
-started by the Hermes Hub Compose service at
-`~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml` (`lancedb-viz:local`
-image, external `hub-services` network, `restart: unless-stopped`). A disabled
-systemd unit on port 7778 is a recovery fallback, not an equivalent path.
+The visualizer runs as the `lancedb-viz` Docker container on port 7777
+(`lancedb-viz:local` image). With Hermes Hub it is started by the Hub's
+`~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml` (external
+`hub-services` network, `restart: unless-stopped`); without the Hub, the
+`docker-compose.yml` at this repository's root runs it standalone. A systemd
+unit on port 7778 is a recovery fallback (`deploy-local.sh --systemd-fallback`),
+not an equivalent path.
 
 Chain: repository -> `deploy-local.sh` -> `~/.hermes/lancedb-viz/` -> Docker bind
 mounts -> port 7777.
@@ -64,6 +66,30 @@ systemctl --user restart hermes-gateway   # REQUIRED when plugin/ changed
 module it already imported. Restart `hermes-gateway` after any `plugin/` change,
 or the running agent keeps using the old store. Static assets (`static/`) are
 re-read per request and need no restart.
+
+## How the agent is told to use memory
+
+- **System prompt block**: short rules, not a tool list - search before
+  answering about a named project, the user's setup or a past decision; write
+  without being asked after a correction, a decision, or a config or fix found
+  with effort; load `lancedb-suite:memory-writing` before the first write.
+- **Skills** ship in `plugin/skills/` and are registered as `lancedb-suite:<name>`
+  by `register()`. They are not copied into `~/.hermes/skills/`. A personal skill
+  with the same short name can sit beside them as a complement.
+- **Write reminder**: every `write_nudge_every` user turns (default 8, `0` off),
+  `prefetch()` returns one line asking to store what was just learned. No store
+  read, no memory content, no recall indicator.
+- **Daily review** (optional): an LLM cron job that reads the last 24 hours of
+  conversations, stores what was learned, supersedes what turned out wrong, and
+  answers `[SILENT]` otherwise. Created at setup (`daily_review: true`) or from
+  the blueprint `lancedb-suite:daily-review`.
+- **Recall stays a tool call**: `auto_prefetch` (push memories into every turn) is
+  off by default; an off-topic match spliced into the user message misleads more
+  than it helps.
+
+Config keys live under `memory.lancedb-suite` in `config.yaml`: `db_path`,
+`embed_model`, `daily_review`, `daily_review_time`, `write_nudge_every`,
+`embed_keep_alive`, `auto_prefetch`.
 
 ## Tables and schema
 
@@ -115,9 +141,13 @@ Measured limits (constants in `plugin/memory_contract.py`):
 | Characters across all facts | `MAX_TOTAL_FACT_CHARS` | 2000 |
 | Relations per memory | `MAX_RELATIONS` | 20 |
 
-A 240-character cap was measured and rejected: it discarded 56.5% of valid
-existing facts, while 1000 characters retained 95.3%. Do not lower
-`MAX_FACT_CHARS` without re-running that measurement.
+A 240-character *hard* cap was measured and rejected: it discarded 56.5% of
+valid existing facts, while 1000 characters retained 95.3%. Do not lower
+`MAX_FACT_CHARS` without re-running that measurement. Density is steered at
+write time instead: `long_fact` (a fact over 240 characters) and `no_relations`
+(3+ facts, no relation) come back as warnings from `density_warnings()`. They are
+never rejections, and audits and the review inbox do not report them: content
+parsed back from storage has lost its relations.
 
 Categories: `project`, `tech`, `fact`, `correction`, `user_pref`, `decision`,
 `insight`, `reference`, `pattern`, `question`. Unknown values are rejected, not
@@ -155,7 +185,20 @@ and must not be used as evidence.
 Single-token queries are a known sharp edge: a bare proper noun often abstains
 while the same query in `mode='lexical'` returns the row. The BM25 score of one
 short token does not clear 12.80 and the cosine distance stays above 0.30. Use
-the full `Domain:Subject`, more tokens, or explicit lexical mode.
+the full `Domain:Subject`, more tokens, or explicit lexical mode. An abstaining
+compact search returns a `hint` saying so.
+
+**What the agent receives.** `lancedb_search` and `lancedb_list` return compact
+rows by default: `id`, `key`, `category`, `tier`, up to 4 facts of 220
+characters, up to 6 relations as `type -> target (id)`, `match` or `via`, and
+`age`; 6 results by default. `view: "full"` returns every stored field and the
+scoring detail; `lancedb_get(id)` returns one full memory. The compact view is
+rendered in `plugin/__init__.py` (`compact_memory`), so the store, the viz and the
+benchmark see unchanged rows.
+
+**Latency.** A warm hybrid search is about 50 ms; almost all of a slow search is
+Ollama reloading the embedding model (0.8-2 s) after `embed_keep_alive` (default
+30 s) of idle time. Raise it (`10m`, `-1`) if the model may stay resident.
 
 ## Changing the system
 
@@ -169,12 +212,20 @@ Where the knobs are:
 | HTTP surface, UI behaviour | `server/server.py`, `static/` |
 | Visualizer look | `static/style.css`, `static/app.js`, `static/graph.js` |
 
-Maintenance constants and their env overrides: `MAINTENANCE_MAX_VERSIONS` (64),
-`MAINTENANCE_MAX_FRAGMENTS` (64), `MAINTENANCE_MAX_ORPHAN_INDEX_DIRECTORIES` (4),
-plus `LANCEDB_MAINTENANCE_MIN_RECLAIMABLE_BYTES`,
-`LANCEDB_MAINTENANCE_MIN_STORAGE_RATIO`,
-`LANCEDB_MAINTENANCE_COOLDOWN_SECONDS`, `LANCEDB_ROUTINE_RETENTION_SECONDS`.
-`LANCEDB_PATH` overrides the database path for the server.
+Routine maintenance (hourly timer, through the viz API) and its env overrides:
+
+| Trigger | Default | Env |
+|---|---|---|
+| Compact above N fragments | 16 | `LANCEDB_MAINTENANCE_MAX_FRAGMENTS` |
+| Reindex when more than N% of rows are missing from content FTS | 5 | `LANCEDB_MAINTENANCE_MAX_FTS_UNINDEXED_PCT` |
+| Cooldown between compactions (s) | 3600 | `LANCEDB_MAINTENANCE_COOLDOWN_SECONDS` |
+| History kept by routine runs (s) | 86400 | `LANCEDB_ROUTINE_RETENTION_SECONDS` |
+| Version cleanup at most every (s) | 86400 | `LANCEDB_MAINTENANCE_CLEANUP_INTERVAL_SECONDS` |
+
+Fragmentation and FTS lag cost real recall, not only speed: rows written since
+the last FTS build are invisible to the lexical half of hybrid search, so exact
+names and paths stop matching. The database path follows `HERMES_HOME`
+(`$HERMES_HOME/lancedb`).
 
 After any change: run the tests, deploy, and verify. A change to retrieval or
 the write contract is a behavior change, not a cosmetic one.
@@ -230,7 +281,7 @@ canonical copy at `~/.hermes/plugins/lancedb-suite/` survives, and its discovery
 the fallback. Restore the runtime copy and restart the gateway:
 
 ```bash
-cp ~/.hermes/plugins/lancedb-suite/{store.py,memory_contract.py,__init__.py,plugin.yaml} \
+cp -r ~/.hermes/plugins/lancedb-suite/{store.py,memory_contract.py,__init__.py,plugin.yaml,skills} \
    ~/.hermes/hermes-agent/plugins/memory/lancedb-suite/
 systemctl --user restart hermes-gateway
 ```
@@ -251,6 +302,10 @@ rotation entirely, and incumbent BM25 scores provably do not move under deferred
 coverage, so the writer reuses any compatible index and rebuilds partial
 coverage only on an explicit `refresh_fts_index()` or through maintenance
 `optimize()`.
+
+Routine maintenance normally keeps this bounded (see the triggers above). If the
+hourly timer is not installed (a catalog install without `deploy-local.sh`), the
+database only grows; install it or run the plan below periodically.
 
 Diagnose with the plan endpoint, which reports database bytes, managed backups,
 total footprint and estimated reclaimable bytes separately:
