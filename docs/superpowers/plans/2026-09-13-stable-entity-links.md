@@ -35,8 +35,8 @@ neighbors and old incoming links, without appending reciprocal links.
 ## Acceptance commands
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_store_links.py
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent $HOME/.hermes/hermes-agent/venv/bin/python -m pytest -q tests/test_store_links.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent $HOME/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
 for file in static/*.js; do node --check "$file" || exit; done
 git status --short
 git log origin/main..HEAD --oneline

@@ -85,7 +85,7 @@
 **Files:**
 - Verify all changed files.
 
-- [ ] Run `PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q tests` after all edits.
+- [ ] Run `PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent $HOME/.hermes/hermes-agent/venv/bin/python -m pytest -q tests` after all edits.
 - [ ] Run `node --check static/app.js` and `node --check static/graph.js`.
 - [ ] Verify skill/doc byte identity, inspect `git diff --check`, and inspect the staged diff for secrets or forbidden threshold/engine changes.
 - [ ] Commit once with a message explaining that read-time FTS rebuilds caused unbounded Lance history; do not push.

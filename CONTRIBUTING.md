@@ -48,9 +48,8 @@ venv/bin/python -c "import importlib; print(importlib.import_module('plugins.mem
 
 ### Visualizer (server/ + static/)
 
-The canonical viz runs in the Hub-managed Docker container on port 7777. Start
-or recreate it from `~/github/hermes-hub/services/lancedb-viz/` with
-`docker compose up -d`. Synchronize repository changes with:
+The canonical viz runs in the `lancedb-viz` Docker container on port 7777. Start
+or recreate it from the repository root with `docker compose up -d --build`. Synchronize repository changes with:
 
 ```bash
 ./scripts/deploy-local.sh --dry-run

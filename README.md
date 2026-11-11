@@ -218,17 +218,15 @@ hermes tools | grep lancedb
 ### 4. Deploy the visualizer
 
 The canonical UI is the `lancedb-viz` Docker container on `127.0.0.1:7777`,
-managed by the Hermes Hub Compose service. Start or recreate it from the Hub,
-then synchronize this repository. Because `deploy-local.sh` rewrites both
+started by the `docker-compose.yml` at the repository root. Start it, then
+synchronize the plugin. Because `deploy-local.sh` rewrites both
 plugin copies but does not restart `hermes-gateway`, restart the gateway after
 deploying plugin changes; otherwise its Python process keeps the previously
 imported module while the container serves the new code.
 
 ```bash
-cd "$HOME/github/hermes-hub/services/lancedb-viz"
-docker compose up -d
-
-cd "$HOME/github/hermes-lancedb-memory-suite"
+# from the root of your clone
+docker compose up -d --build
 ./scripts/deploy-local.sh --dry-run
 ./scripts/deploy-local.sh
 systemctl --user restart hermes-gateway
@@ -750,9 +748,9 @@ systemctl --user restart hermes-gateway
 
 ### docker-run.sh
 
-This is a standalone development helper, not the Hub deployment path. It owns
+This is a standalone development helper, not the Compose deployment. It owns
 the same `lancedb-viz` container name and port, so do not run it while the
-Hub-managed service is active. `--rebuild` rebuilds `lancedb-viz:local` before
+Compose service is active. `--rebuild` rebuilds `lancedb-viz:local` before
 starting the standalone container.
 
 ### verify-setup.sh
@@ -773,7 +771,7 @@ fixture below `/tmp`; it never benchmarks by writing the real database. Run it
 with the pinned host environment and record the engine with every measurement:
 
 ```bash
-cd "$HOME/github/hermes-lancedb-memory-suite"
+# from the repository root
 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 OLLAMA_HOST=http://127.0.0.1:11434 \
 "$HOME/.hermes/hermes-agent/venv/bin/python" \
@@ -884,24 +882,22 @@ Two invariants worth knowing before you change retrieval:
 
 ## Docker deployment
 
-The production definition is
-`~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml`. It runs image
-`lancedb-viz:local` as container `lancedb-viz`, publishes port 7777 on the address
-set by `LANCEDB_VIZ_BIND` (the Hub defaults to all interfaces, this repository's
-compose to `127.0.0.1`; see [Remote access](#remote-access-lan-tailscale)), and joins
-the existing external `hub-services` network. It
-bind-mounts `server.py`, `maintenance.py`, and `static/` from
-`~/.hermes/lancedb-viz/`, the Hermes Agent tree read-only, and the LanceDB data
-plus `~/.hermes/backups/` read-write.
+The `docker-compose.yml` at the repository root is the service definition. It
+builds image `lancedb-viz:local`, runs it as container `lancedb-viz`, publishes
+port 7777 on the address set by `LANCEDB_VIZ_BIND` (default `127.0.0.1`; see
+[Remote access](#remote-access-lan-tailscale)), bind-mounts `server.py`,
+`maintenance.py` and `static/`, the Hermes Agent tree read-only, and the LanceDB
+data plus `~/.hermes/backups/` read-write.
 
 ```bash
-cd "$HOME/github/hermes-hub/services/lancedb-viz"
-docker compose up -d
+docker compose up -d --build      # from the repository root
 docker compose ps
 ```
 
-The repository-level Compose file and `scripts/docker-run.sh` support local
-development; they are not the production service definition. The systemd unit
+Running it from another Compose definition (a homelab dashboard, for example)
+works too: keep the container name `lancedb-viz` and port 7777, which
+`deploy-local.sh` and `verify-setup.sh` rely on. `scripts/docker-run.sh` is a
+development helper. The systemd unit
 on `127.0.0.1:7778` is disabled and reserved for recovery.
 
 ### Remote access (LAN, Tailscale)
@@ -911,7 +907,7 @@ both compose files and `scripts/docker-run.sh`:
 
 | Variable | Default | Effect |
 |---|---|---|
-| `LANCEDB_VIZ_BIND` | `127.0.0.1` (repository), `0.0.0.0` (Hub) | Address the port is published on: `127.0.0.1` this host only, a Tailscale IP (`100.x.y.z`) the tailnet only, `0.0.0.0` LAN and tailnet. |
+| `LANCEDB_VIZ_BIND` | `127.0.0.1` | Address the port is published on: `127.0.0.1` this host only, a Tailscale IP (`100.x.y.z`) the tailnet only, `0.0.0.0` LAN and tailnet. |
 | `LANCEDB_VIZ_TRUSTED_HOSTS` | empty | Extra hostnames allowed to **write** (comma-separated): a tailnet name like `host.tail1234.ts.net` or a `100.x` address. |
 
 Any client that reaches the port can **read**. Writes (edit, delete, import,

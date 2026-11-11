@@ -1013,10 +1013,7 @@ class VizRetentionTests(unittest.TestCase):
         production while every unit test passed on the host venv.
         """
         required = {"httpx", "scikit-learn", "umap-learn"}
-        for requirements in (
-            ROOT / "requirements.txt",
-            Path("/home/elo/github/hermes-hub/services/lancedb-viz/requirements.txt"),
-        ):
+        for requirements in (ROOT / "requirements.txt",):
             if not requirements.exists():
                 continue
             text = requirements.read_text()

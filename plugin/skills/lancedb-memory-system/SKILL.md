@@ -47,10 +47,10 @@ compare hashes.
 ## Deployment
 
 The visualizer runs as the `lancedb-viz` Docker container on port 7777
-(`lancedb-viz:local` image). With Hermes Hub it is started by the Hub's
-`~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml` (external
-`hub-services` network, `restart: unless-stopped`); without the Hub, the
-`docker-compose.yml` at this repository's root runs it standalone. A systemd
+(`lancedb-viz:local` image), started by the `docker-compose.yml` at this
+repository's root (`docker compose up -d --build`, `restart: unless-stopped`).
+Another Compose definition works too as long as it keeps the container name
+`lancedb-viz` and port 7777. A systemd
 unit on port 7778 is a recovery fallback (`deploy-local.sh --systemd-fallback`),
 not an equivalent path.
 
@@ -435,7 +435,7 @@ reason, timings, and the calibrated-versus-running engine check.
 |---|---|
 | `deploy-local.sh` | Sync repository -> plugin copies + visualizer, restart and verify |
 | `verify-setup.sh` | Post-deployment smoke test against the canonical endpoint |
-| `docker-run.sh` | Standalone dev container (same container name; do not run beside the Hub service) |
+| `docker-run.sh` | Standalone dev container (same container name; do not run beside the Compose service) |
 | `audit-memory-format.py` | Read-only format drift report, `--fail-on-drift` for CI |
 | `migrate-memory-format.py` | Dry-run-only row classification |
 | `migrate_graph_retention.py` | Backfill concrete relation target IDs, build the conflict ledger |
@@ -457,7 +457,6 @@ The retrieval retention gate copies the live database read-only into a
 disposable `/tmp` fixture and never benchmarks by writing the real database:
 
 ```bash
-cd "$HOME/github/hermes-lancedb-memory-suite"
 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" OLLAMA_HOST=http://127.0.0.1:11434 \
   "$HOME/.hermes/hermes-agent/venv/bin/python" \
   audit/repro/benchmark-retrieval.py --prepare-fixture --replace-fixture \

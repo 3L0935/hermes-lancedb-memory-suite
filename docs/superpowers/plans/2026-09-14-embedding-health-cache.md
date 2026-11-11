@@ -164,8 +164,8 @@ self.assertIn("Cached locally", app)
 Run:
 
 ```bash
-PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
-  /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
+PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent \
+  $HOME/.hermes/hermes-agent/venv/bin/python -m pytest \
   tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
@@ -234,8 +234,8 @@ Run:
 
 ```bash
 node --test tests/static_embedding_health_cache.test.cjs
-PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
-  /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
+PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent \
+  $HOME/.hermes/hermes-agent/venv/bin/python -m pytest \
   tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
@@ -269,8 +269,8 @@ self.assertIn('health-last-check', css)
 Run:
 
 ```bash
-PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
-  /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest \
+PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent \
+  $HOME/.hermes/hermes-agent/venv/bin/python -m pytest \
   tests/test_viz_retention.py::VizRetentionTests::test_projection_and_health_ui_distinguish_dependency_error_and_no_data -q
 ```
 
@@ -312,8 +312,8 @@ Run:
 node --check static/embedding-health-cache.js
 node --check static/app.js
 node --test tests/static_*.test.cjs
-PYTHONPATH=$PWD:/home/elo/.hermes/hermes-agent \
-  /home/elo/.hermes/hermes-agent/venv/bin/python -m pytest -q
+PYTHONPATH=$PWD:$HOME/.hermes/hermes-agent \
+  $HOME/.hermes/hermes-agent/venv/bin/python -m pytest -q
 git diff --check
 ```
 

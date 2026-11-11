@@ -66,7 +66,8 @@ class DeployContractTests(unittest.TestCase):
 
         for document in (setup, skill):
             self.assertIn("lancedb==0.34.0", document)
-            self.assertIn("hermes-hub/services/lancedb-viz", document)
+            self.assertIn("docker compose up -d --build", document)
+            self.assertNotIn("hermes-hub", document)   # public docs: no private deployment
             self.assertIn("hermes-gateway", document)
             self.assertIn("benchmark-retrieval.py", document)
             self.assertIn("/api/maintenance/compact", document)

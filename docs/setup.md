@@ -1,7 +1,7 @@
 # Setup Guide
 
 This guide installs the local-only LanceDB memory provider and its Docker
-visualizer managed by Hermes Hub. LanceDB remains the only persistent database.
+visualizer. LanceDB remains the only persistent database.
 Ollama is used only for embeddings; the disabled systemd service on port 7778
 is a recovery fallback.
 
@@ -10,26 +10,23 @@ is a recovery fallback.
 - Hermes Agent with a Python 3.11+ virtual environment
 - Ollama listening on `127.0.0.1:11434`
 - `nomic-embed-text`
-- Docker and the Hermes Hub checkout for the canonical visualizer
+- Docker (Compose v2) for the visualizer
 
 ```bash
 ollama pull nomic-embed-text
-cd ~/github/hermes-lancedb-memory-suite
+cd hermes-lancedb-memory-suite        # your clone of this repository
 "$HOME/.hermes/hermes-agent/venv/bin/pip" install -r requirements.txt
 ```
 
 `requirements.txt` pins `lancedb==0.34.0`. Keep that pin aligned in the host
-venv and Hub image: BM25 scores are engine-specific, so an engine upgrade can
+venv and the visualizer image: BM25 scores are engine-specific, so an engine upgrade can
 invalidate the abstention threshold without changing this repository's code.
 Routine cleanup also requires the pinned `pylance==9.0.0`. Sync dependencies and
-rebuild the Hub image whenever `requirements.txt` changes; `docker restart`
+rebuild the image whenever `requirements.txt` changes; `docker restart`
 does not install new packages:
 
 ```bash
-cp ~/github/hermes-lancedb-memory-suite/requirements.txt \
-  ~/github/hermes-hub/services/lancedb-viz/requirements.txt
-docker compose -f ~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml \
-  up -d --build lancedb-viz
+docker compose up -d --build lancedb-viz   # from the repository root
 ```
 
 ## 2. Configure Hermes
@@ -48,25 +45,24 @@ The plugin does not auto-ingest conversations. Writes remain explicit through `l
 
 ## 3. Preview and deploy
 
-Start or recreate the canonical container from the Hub service, then sync this
-repository:
+Start the container with the repository's `docker-compose.yml`, then sync the
+plugin:
 
 ```bash
-cd ~/github/hermes-hub/services/lancedb-viz
-docker compose up -d
-
-cd ~/github/hermes-lancedb-memory-suite
+docker compose up -d --build      # from the repository root
 ./scripts/deploy-local.sh --dry-run
 ./scripts/deploy-local.sh
 ```
 
-The Hub definition uses image `lancedb-viz:local`, the external
-`hub-services` network, and bind mounts under `~/.hermes/lancedb-viz/` for
-`server.py`, `maintenance.py`, and `static/`. `deploy-local.sh` synchronizes
-those files and both plugin copies, then restarts the existing container. Static
+The Compose file builds image `lancedb-viz:local`, names the container
+`lancedb-viz`, and bind-mounts `server.py`, `maintenance.py` and `static/`.
+`deploy-local.sh` synchronizes both plugin copies and the viz files under
+`~/.hermes/lancedb-viz/`, then restarts the container by name. If you run the
+container from another Compose definition, keep the `lancedb-viz` name and
+port 7777 so the script finds it. Static
 files are read per request; Python server changes require the container restart.
 
-Dashboard (Docker via Hermes Hub, primary): `http://localhost:7777`
+Dashboard (Docker, primary): `http://localhost:7777`
 
 A user systemd unit (`lancedb-viz.service`, port 7778) is installed but left
 disabled. Use it only for deliberate recovery without the canonical container.
@@ -108,9 +104,7 @@ the old threshold or embedder.
 ## 5. Verify
 
 ```bash
-cd ~/github/hermes-hub/services/lancedb-viz
-docker compose ps
-cd ~/github/hermes-lancedb-memory-suite
+docker compose ps                 # from the repository root
 curl -fsS http://127.0.0.1:7777/api/stats | python3 -m json.tool
 curl -fsS http://127.0.0.1:7777/api/health | python3 -m json.tool
 curl -fsS 'http://127.0.0.1:7777/api/conflicts?status=open' | python3 -m json.tool
@@ -151,7 +145,6 @@ calibration, not as a comparable measurement.
 Run the retention harness only through a disposable `/tmp` fixture:
 
 ```bash
-cd ~/github/hermes-lancedb-memory-suite
 PYTHONPATH="$PWD:$HOME/.hermes/hermes-agent" \
 OLLAMA_HOST=http://127.0.0.1:11434 \
 "$HOME/.hermes/hermes-agent/venv/bin/python" \
@@ -222,8 +215,7 @@ systemctl --user restart hermes-gateway.service
 ### Canonical visualizer does not start
 
 ```bash
-cd ~/github/hermes-hub/services/lancedb-viz
-docker compose ps
+docker compose ps                 # from the repository root
 docker compose logs --tail 100 lancedb-viz
 ```
 
