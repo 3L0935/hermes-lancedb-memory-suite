@@ -1,8 +1,11 @@
 ---
 name: lancedb-memory-system
-description: "LanceDB memory architecture, deployment, and how to change it."
-version: 7.0.0
+description: "LanceDB memory architecture, deployment, and how to change it - including how to tailor it to its user by asking before changing behaviour."
+version: 7.1.0
 triggers:
+  - "memory setup"
+  - "tune memory"
+  - "memory health check"
   - "lancedb memory"
   - "vector memory"
   - "lancedb rebuild"
@@ -199,6 +202,46 @@ benchmark see unchanged rows.
 **Latency.** A warm hybrid search is about 50 ms; almost all of a slow search is
 Ollama reloading the embedding model (0.8-2 s) after `embed_keep_alive` (default
 30 s) of idle time. Raise it (`10m`, `-1`) if the model may stay resident.
+
+## Tailoring the system to its user
+
+The defaults are a reasonable start, not a fit. How much someone writes, what
+their machine runs next to Ollama, and how much they want the agent to act on
+its own decide the right settings, and those are the user's calls.
+
+**Ask before changing behaviour.** Anything that changes what gets stored,
+recalled, deleted or exposed - thresholds, limits, the daily review, deletion
+policy, auto-prefetch, the viz binding - is proposed with its trade-off and
+applied only after the user agrees. Read-only checks need no permission.
+
+**Questions that orient the settings.** Ask the ones whose answer you do not
+already know, a few at a time, in plain words; skip the rest.
+
+| Ask | Answer -> setting |
+|---|---|
+| How often will you come back to past work, and on how many projects? | Many projects or long breaks -> keep the write reminder (`write_nudge_every` 8) and suggest the daily review. Occasional use -> `write_nudge_every: 0`. |
+| Should I store things without asking, or check with you first? | "Without asking" -> current rules. "Ask first" -> say so in the user's own instructions (SOUL or equivalent); the plugin has no per-write confirmation switch. |
+| Do you want a daily review of the last 24 hours? When, and may it delete memories? | Yes -> `daily_review: true`, `daily_review_time`, deletion policy `report` (default) or `allow`. It costs one agent run a day. |
+| Does a local LLM share the GPU with the embedding model? How much VRAM/RAM is free? | Room to spare -> `embed_keep_alive: 10m` or `-1` (no 1-2 s reload per search). Tight -> keep `30s`. |
+| Do searches miss things you know are stored? | Check fragmentation and FTS coverage first (below), then suggest fuller queries or `mode: lexical`; the abstention thresholds are calibrated and only change with a re-run of the benchmark. |
+| Should the visualizer be reachable from your phone or other machines? | Yes -> publish beyond loopback consciously (writes stay local-only); no -> bind `127.0.0.1`. |
+| Is the hourly maintenance timer installed? | No (catalog install without `deploy-local.sh`) -> offer to install it, or to run the plan periodically. |
+
+**A health check to offer.** Measure, then recommend, then let the user pick:
+
+1. `curl -fsS http://127.0.0.1:7777/api/stats` - size, categories, `ages`, and
+   `access` (a large share never recalled means memories are written but not
+   found, or not worth keeping).
+2. `curl -fsS http://127.0.0.1:7777/api/maintenance/compact/plan` - fragments,
+   FTS lag, whether maintenance is due or deferred.
+3. `curl -fsS http://127.0.0.1:7777/api/review` - format drift, contradictions,
+   broken references (read-only).
+4. `lancedb_conflicts` - open conflicts waiting for a decision.
+5. A few `lancedb_search` calls on topics the user cares about: do the right
+   memories come back?
+
+Report findings as a short list of "what I saw -> what I suggest -> what it
+costs", one decision per line, and apply only what the user approves.
 
 ## Changing the system
 
