@@ -405,7 +405,7 @@ body[data-group="hygiene"] .lens-set[data-group="hygiene"] { display: flex; }
 .row-item .txt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .row-item .meta { font: 11px var(--mono); color: var(--mute); white-space: nowrap; }
 .rows .empty-state { border-top: 1px solid var(--line); }
-.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tile { display: block; background: var(--s2); border-radius: var(--r); padding: 8px 10px; color: inherit; min-width: 0; }
 a.tile:hover { background: var(--s3); color: inherit; }
 .tile-v { font: 500 18px var(--mono); color: var(--text); }
@@ -820,7 +820,6 @@ input[type=checkbox] { accent-color: var(--acc); }
   .kpi-v { font-size: 20px; }
   .dash-grid, .dash-side { gap: 12px; }
   .row-item { grid-template-columns: 88px minmax(0, 1fr) auto; padding: 10px 12px; }
-  .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .card { padding: 12px; }
   .bar-row .bar-label { min-width: 62px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -921,7 +920,6 @@ input[type=checkbox] { accent-color: var(--acc); }
   .page-inner { padding: 12px 10px 18px; }
   #controls { padding: 8px 10px; }
   .health-grid { grid-template-columns: 1fr; }
-  .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 }
 
 /* Touch devices have no hover: no ghost tooltip. */

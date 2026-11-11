@@ -223,14 +223,21 @@ async function loadDashboard() {
     // Needs attention: cheap numbers only; scans stay on their own page.
     const attention = document.getElementById('dash-attention');
     const tile = (href, n, label, color) => '<a class="tile" href="' + href + '"><div class="tile-v" style="color:' + color + '">' + escapeHtml(n) + '</div><div class="tile-l">' + escapeHtml(label) + '</div></a>';
-    const old = ages['>30d'] || 0;
+    // Each tile shows exactly what its page lists: the stale count uses the
+    // Stale page's own filters, so clicking through never lands on an empty page.
+    const staleDays = (document.getElementById('stale-days') || {}).value || 90;
+    const staleQuality = (document.getElementById('stale-quality') || {}).value || 0.3;
     attention.innerHTML = tile('#conflicts', '…', 'open conflicts', 'var(--mute)') +
-      tile('#stale', fmtInt(never), 'never recalled', never ? 'var(--amber)' : 'var(--mute)') +
-      tile('#timeline', fmtInt(old), 'older than 30 days', 'var(--dim)');
+      tile('#stale', '…', 'stale candidates', 'var(--mute)');
+    const put = (index, html) => { const t = attention.querySelectorAll('.tile')[index]; if (t) t.outerHTML = html; };
     fetch(API + '/conflicts?status=open&limit=200').then(r => r.json()).then(rows => {
       const n = Array.isArray(rows) ? rows.length : 0;
-      const first = attention.querySelector('.tile');
-      if (first) first.outerHTML = tile('#conflicts', n >= 200 ? '200+' : n, n === 1 ? 'open conflict' : 'open conflicts', n ? 'var(--red)' : 'var(--green)');
+      put(0, tile('#conflicts', n >= 200 ? '200+' : n, n === 1 ? 'open conflict' : 'open conflicts', n ? 'var(--red)' : 'var(--green)'));
+    }).catch(() => {});
+    fetch(API + '/stale?days=' + encodeURIComponent(staleDays) + '&quality_max=' + encodeURIComponent(staleQuality)).then(r => r.json()).then(rows => {
+      if (rows && !Array.isArray(rows) && Array.isArray(rows.memories)) rows = rows.memories;
+      const n = Array.isArray(rows) ? rows.length : 0;
+      put(1, tile('#stale', n, 'stale (> ' + staleDays + 'd, quality < ' + staleQuality + ')', n ? 'var(--amber)' : 'var(--green)'));
     }).catch(() => {});
 
   } catch(e) {
