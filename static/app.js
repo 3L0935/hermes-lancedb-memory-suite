@@ -5,15 +5,51 @@
 const API = '/api';
 let currentPage = 'dashboard';
 
+// Five sections group the pages. Every page id stays a valid URL hash
+// (#graph, #stale...), and a section name opens the last view used in it.
+const PAGE_GROUP = {
+  dashboard: 'overview',
+  memories: 'memories', timeline: 'memories', tags: 'memories',
+  graph: 'graph', clusters: 'graph',
+  conflicts: 'hygiene', duplicates: 'hygiene', stale: 'hygiene', review: 'hygiene',
+  embedding: 'health',
+};
+const GROUP_TITLE = { overview: 'Overview', memories: 'Memories', graph: 'Graph', hygiene: 'Hygiene', health: 'Health' };
+const groupLastPage = { overview: 'dashboard', memories: 'memories', graph: 'graph', hygiene: 'conflicts', health: 'embedding' };
+
+function pageFromHash(hash) {
+  const key = String(hash || '').replace(/^#\/?/, '').split(/[?&]/)[0];
+  if (PAGE_GROUP[key]) return key;
+  if (groupLastPage[key]) return groupLastPage[key];
+  return null;
+}
+
 function switchPage(name) {
+  if (!PAGE_GROUP[name]) name = 'dashboard';
   if (name !== 'graph' && typeof pauseGraphPhysics === 'function') pauseGraphPhysics();
+  const group = PAGE_GROUP[name];
+  groupLastPage[group] = name;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const pageEl = document.getElementById('page-' + name);
   if (pageEl) pageEl.classList.add('active');
-  const navEl = document.querySelector('.nav-item[data-page="' + name + '"]');
-  if (navEl) navEl.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    const on = n.dataset.group === group;
+    n.classList.toggle('active', on);
+    if (on) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.lens').forEach(l => {
+    const on = l.dataset.page === name;
+    l.classList.toggle('active', on);
+    if (on) l.setAttribute('aria-current', 'page'); else l.removeAttribute('aria-current');
+  });
+  document.body.dataset.group = group;
+  document.body.dataset.page = name;
+  setEl('section-title', GROUP_TITLE[group]);
+  document.title = GROUP_TITLE[group] + ' · Memory · LanceDB';
   currentPage = name;
+  if (pageFromHash(location.hash) !== name) {
+    try { history.replaceState(null, '', '#' + name); } catch (e) { /* file:// or sandboxed */ }
+  }
 
   const fleg = document.getElementById('fresh-legend');
   if (fleg) fleg.style.display = name === 'graph' ? 'flex' : 'none';
@@ -42,6 +78,24 @@ function updateTopStats() {
     setEl('mem-count', s.total_memories != null ? s.total_memories : '--');
     setEl('ent-count', s.total_entities != null ? s.total_entities : '--');
     setEl('db-size', s.db_size_mb != null ? s.db_size_mb + ' MB' : '');
+    if (s.total_edges != null) setEl('edge-count', s.total_edges);
+    setEl('nav-count-memories', s.total_memories != null ? s.total_memories : '');
+    setEl('nav-db', s.db_size_mb != null ? s.db_size_mb + ' MB' : '');
+  }).catch(() => {});
+  updateHygieneCount();
+}
+
+// Open conflicts are the one hygiene number that is cheap to know: the
+// ledger is a table read, not a scan. Duplicates and review stay on request.
+let hygieneCountAt = 0;
+function updateHygieneCount(force) {
+  if (!force && Date.now() - hygieneCountAt < 60000) return;
+  hygieneCountAt = Date.now();
+  fetch(API + '/conflicts?status=open&limit=200').then(r => r.json()).then(rows => {
+    const n = Array.isArray(rows) ? rows.length : 0;
+    const label = n ? (n >= 200 ? '200+' : String(n)) : '';
+    setEl('nav-count-hygiene', label);
+    setEl('lens-n-conflicts', label);
   }).catch(() => {});
 }
 
@@ -83,74 +137,101 @@ function age(ts) {
 }
 
 function badgeForTier(t) {
-  if (t === '1') return '<span style="background:rgba(239,68,68,0.15);color:#fca5a5;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;">T1</span>';
-  if (t === '2') return '<span style="background:rgba(245,158,11,0.15);color:#fbbf24;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;">T2</span>';
-  if (t === '3') return '<span style="background:rgba(99,102,241,0.15);color:#a5b4fc;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;">T3</span>';
-  return '';
+  t = String(t);
+  return (t === '1' || t === '2' || t === '3') ? '<span class="tier-badge tier-' + t + '">T' + escapeHtml(t) + '</span>' : '';
 }
 
 // ═══════════════════════════════════════════════
 // Dashboard
 // ═══════════════════════════════════════════════
 
+const tierColor = t => 'var(--tier-' + t + ', var(--acc))';
+const fmtInt = n => Number(n || 0).toLocaleString('en-US');
+
 async function loadDashboard() {
   const el = document.getElementById('dash-stats');
   el.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading...</div></div>';
   try {
-    const [stats, dash] = await Promise.all([
+    const [stats, dash, timeline] = await Promise.all([
       fetch(API + '/stats').then(r => r.json()),
-      fetch(API + '/dashboard').then(r => r.json())
+      fetch(API + '/dashboard').then(r => r.json()),
+      fetch(API + '/timeline').then(r => r.json()).catch(() => []),
     ]);
 
-    const tiers = dash.tiers || {};
+    const tiers = dash.tiers || stats.tiers || {};
     const cats = dash.categories || {};
+    const ages = stats.ages || {};
+    const access = stats.access || {};
+    const total = stats.total_memories || dash.total || 0;
+    const fresh = (ages['<1h'] || 0) + (ages['1-24h'] || 0);
+    const never = access['0'] || 0;
 
-    // Stats cards: categories + tiers + totals
-    const statsHtml = [];
-    Object.entries(cats).sort((a,b) => b[1]-a[1]).forEach(([k,v]) => {
-      statsHtml.push([(colorLabel[k] || k), v || 0, colorHex[k] || colorHexDef]);
-    });
-    if (tiers['1']) statsHtml.push(['T1 Critical', tiers['1'], '#fca5a5']);
-    if (tiers['2']) statsHtml.push(['T2 Important', tiers['2'], '#fbbf24']);
-    if (tiers['3']) statsHtml.push(['T3 Context', tiers['3'], '#a5b4fc']);
-    statsHtml.push(
-      ['Total', stats.total_memories || 0, 'var(--accent)'],
-      ['Entities', stats.total_entities || 0, '#6ee7b7'],
-      ['DB Size', (stats.db_size_mb || '?') + ' MB', 'var(--muted)'],
-    );
-    el.innerHTML = statsHtml.map(([label,val,color]) =>
-      '<div class="stat-card"><div class="stat-value" style="color:' + color + ';font-size:' + (typeof val === 'string' ? '16px' : '22px') + '">' + escapeHtml(val) + '</div><div class="stat-label">' + escapeHtml(label) + '</div></div>'
-    ).join('');
+    const kpi = (label, value, sub, color) =>
+      '<div class="kpi"><div class="lbl">' + escapeHtml(label) + '</div>' +
+      '<div class="kpi-v"' + (color ? ' style="color:' + color + '"' : '') + '>' + escapeHtml(value) + '</div>' +
+      '<div class="kpi-s">' + escapeHtml(sub) + '</div></div>';
+    el.innerHTML = [
+      kpi('Memories', fmtInt(total), fresh ? fresh + ' written in 24h' : 'none in 24h'),
+      kpi('Entities', fmtInt(stats.total_entities), 'named things'),
+      kpi('Links', fmtInt(stats.total_edges), fmtInt(stats.total_semantic_edges) + ' by similarity'),
+      kpi('Never recalled', fmtInt(never), total ? Math.round(never / total * 100) + '% of memories' : '', never ? 'var(--amber)' : ''),
+      kpi('Disk', (stats.db_size_mb != null ? stats.db_size_mb : '?') + ' MB', 'avg quality ' + Math.round((dash.avg_quality || 0) * 100) + '%'),
+    ].join('');
 
-    // Categories bar chart
-    const catMax = Math.max(1, ...Object.values(cats));
-    document.getElementById('dash-categories').innerHTML = Object.entries(cats)
-      .sort((a,b) => b[1]-a[1]).map(([k,v]) =>
-        '<div class="bar-row"><span class="bar-label">' + escapeHtml(colorLabel[safeCategory(k)] || 'Fact') + '</span><div class="bar-track"><div class="bar-fill" style="width:' + (v/catMax*100).toFixed(0) + '%;background:' + (colorHex[safeCategory(k)] || colorHexDef) + '"></div></div><span class="bar-count">' + escapeHtml(v) + '</span></div>'
-      ).join('');
+    // Categories: one stacked bar and its legend.
+    const catEntries = Object.entries(cats).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+    const catColor = k => 'var(--cat-' + safeCategory(k) + ', ' + (colorHex[safeCategory(k)] || colorHexDef) + ')';
+    document.getElementById('dash-categories').innerHTML = catEntries.length
+      ? '<div class="stack" role="img" aria-label="Memories by category">' + catEntries.map(([k,v]) =>
+          '<span style="flex:' + v + ' 1 0;background:' + catColor(k) + '" title="' + escapeHtmlAttr((colorLabel[safeCategory(k)] || k) + ': ' + v) + '"></span>').join('') + '</div>' +
+        '<div class="legend">' + catEntries.map(([k,v]) =>
+          '<span><i style="background:' + catColor(k) + '"></i>' + escapeHtml(colorLabel[safeCategory(k)] || k) + ' <b>' + escapeHtml(v) + '</b></span>').join('') + '</div>'
+      : '<div class="empty-state">No memories yet</div>';
+    setEl('dash-tiers-line', ['1','2','3'].map(t => 'T' + t + ' ' + (tiers[t] || 0)).join(' · ') + (tiers.none ? ' · untiered ' + tiers.none : ''));
 
-    // Tiers bar chart
+    // Tiers
     const tMax = Math.max(1, ...Object.values(tiers));
-    document.getElementById('dash-tiers').innerHTML = Object.entries(tiers)
-      .sort((a,b) => a[0].localeCompare(b[0])).map(([k,v]) =>
-        '<div class="bar-row"><span class="bar-label">Tier ' + k + '</span><div class="bar-track"><div class="bar-fill" style="width:' + (v/tMax*100).toFixed(0) + '%;background:' + ({'1':'#fca5a5','2':'#fbbf24','3':'#a5b4fc'}[k] || '#6366f1') + '"></div></div><span class="bar-count">' + v + '</span></div>'
-      ).join('') || '<div class="empty-state">No tier data</div>';
+    document.getElementById('dash-tiers').innerHTML = ['1','2','3'].map(k => {
+      const v = tiers[k] || 0;
+      const name = {'1':'T1 critical','2':'T2 important','3':'T3 context'}[k];
+      return '<div class="bar-row"><span class="bar-label">' + name + '</span><div class="bar-track"><div class="bar-fill" style="width:' + (v/tMax*100).toFixed(0) + '%;background:' + tierColor(k) + '"></div></div><span class="bar-count">' + v + '</span></div>';
+    }).join('');
 
     // Tags
-    const tags = dash.tags || {};
-    const tagEntries = Object.entries(tags).sort((a,b) => b[1]-a[1]).slice(0, 10);
-    const tagMax = Math.max(1, ...tagEntries.map(([,v])=>v));
+    const tagEntries = Object.entries(dash.tags || {}).sort((a,b) => b[1]-a[1]).slice(0, 16);
     document.getElementById('dash-tags').innerHTML = tagEntries.length
-      ? tagEntries.map(([k,v]) =>
-          '<div class="bar-row"><span class="bar-label">' + escapeHtml(k) + '</span><div class="bar-track"><div class="bar-fill" style="width:' + (v/tagMax*100).toFixed(0) + '%;background:#a78bfa"></div></div><span class="bar-count">' + escapeHtml(v) + '</span></div>'
-        ).join('')
+      ? tagEntries.map(([k,v]) => '<span class="chip">' + escapeHtml(k) + '<b>' + escapeHtml(v) + '</b></span>').join('')
       : '<div class="empty-state">No tags</div>';
 
-    // Top accessed
+    // Recently written: newest day groups first.
+    let days = timeline;
+    if (days && !Array.isArray(days) && Array.isArray(days.timeline)) days = days.timeline;
+    const recent = (Array.isArray(days) ? days : []).flatMap(g => g.memories || [])
+      .sort((a,b) => (b.created_at || 0) - (a.created_at || 0)).slice(0, 8);
+    const row = (m, meta) => '<button class="row-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' +
+      catBadge(m.category) + '<span class="txt">' + escapeHtml((m.content || '').substring(0, 160)) + '</span><span class="meta">' + escapeHtml(meta) + '</span></button>';
+    document.getElementById('dash-recent').innerHTML = recent.length
+      ? recent.map(m => row(m, age(m.created_at))).join('')
+      : '<div class="empty-state">Nothing written yet</div>';
+
+    // Most recalled
     const top = dash.top_accessed || [];
     document.getElementById('dash-accessed').innerHTML = top.length
-      ? top.map(m => '<div class="timeline-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' + catBadge(m.category) + ' ' + escapeHtml((m.content || '').substring(0,80)) + ' <span style="color:var(--muted);font-size:10px;">(' + escapeHtml(m.access_count || 0) + 'x)</span></div>').join('')
-      : '<div class="empty-state">No data</div>';
+      ? top.slice(0, 8).map(m => row(m, (m.access_count || 0) + '×')).join('')
+      : '<div class="empty-state">No recall recorded yet</div>';
+
+    // Needs attention: cheap numbers only; scans stay on their own page.
+    const attention = document.getElementById('dash-attention');
+    const tile = (href, n, label, color) => '<a class="tile" href="' + href + '"><div class="tile-v" style="color:' + color + '">' + escapeHtml(n) + '</div><div class="tile-l">' + escapeHtml(label) + '</div></a>';
+    const old = ages['>30d'] || 0;
+    attention.innerHTML = tile('#conflicts', '…', 'open conflicts', 'var(--mute)') +
+      tile('#stale', fmtInt(never), 'never recalled', never ? 'var(--amber)' : 'var(--mute)') +
+      tile('#timeline', fmtInt(old), 'older than 30 days', 'var(--dim)');
+    fetch(API + '/conflicts?status=open&limit=200').then(r => r.json()).then(rows => {
+      const n = Array.isArray(rows) ? rows.length : 0;
+      const first = attention.querySelector('.tile');
+      if (first) first.outerHTML = tile('#conflicts', n >= 200 ? '200+' : n, n === 1 ? 'open conflict' : 'open conflicts', n ? 'var(--red)' : 'var(--green)');
+    }).catch(() => {});
 
   } catch(e) {
     el.innerHTML = '<div class="error-state">Error: ' + escapeHtml(e.message) + '</div>';
@@ -196,7 +277,7 @@ async function loadMemories() {
         '<td>' + catBadge(m.category) + '</td>' +
         '<td>' + badgeForTier(m.tier) + '</td>' +
         '<td>' + (m.tags || []).slice(0,3).map(t => '<span class="tag-badge" style="font-size:9px;padding:1px 5px;">' + escapeHtml(t) + '</span>').join('') + '</td>' +
-        '<td><div class="quality-bar"><div class="quality-fill" style="width:' + Math.max(4, ((m.quality||0)*100)).toFixed(0) + '%;background:' + (m.quality>=0.7?'#6ee7b7':m.quality>=0.4?'#fbbf24':'#fca5a5') + ';min-width:4px;"></div></div></td>' +
+        '<td><div class="quality-bar"><div class="quality-fill" style="width:' + Math.max(4, ((m.quality||0)*100)).toFixed(0) + '%;background:' + (m.quality>=0.7?'var(--green)':m.quality>=0.4?'var(--amber)':'var(--red)') + ';min-width:4px;"></div></div></td>' +
         '<td style="color:var(--muted);font-size:10px;">' + age(m.created_at) + '</td>' +
       '</tr>'
     ).join('');
@@ -238,7 +319,7 @@ function showMemoryDetail(id) {
       '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">' +
         '<div class="modal">' +
           '<div class="modal-title">' + catBadge(m.category) + ' <span style="color:var(--muted);font-size:11px;">' + escapeHtml(m.type || '') + '</span></div>' +
-          '<div style="background:rgba(20,20,40,0.5);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:\'Fira Code\',monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:100px;max-height:400px;overflow-y:auto;">' + escapeHtml(m.content || '') + '</div>' +
+          '<div style="background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:100px;max-height:400px;overflow-y:auto;">' + escapeHtml(m.content || '') + '</div>' +
           '<div style="margin-top:10px;color:var(--muted);font-size:11px;">Quality: ' + ((m.quality||0)*100).toFixed(0) + '% · Accessed: ' + (m.access_count||0) + 'x · Created: ' + new Date((m.created_at||0)*1000).toLocaleString() + '</div>' +
           '<div style="margin-top:8px;">' + (m.entities||[]).map(e => '<span class="tag-badge">' + escapeHtml(e) + '</span>').join('') + '</div>' +
           '<div style="margin-top:8px;">' + (m.tags||[]).map(t => '<span class="tag-badge">' + escapeHtml(t) + '</span>').join('') + '</div>' +
@@ -588,13 +669,13 @@ async function loadEmbedding() {
     };
     if (!Array.isArray(projection) && projection.state && projection.state !== 'ready') {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#64748b'; ctx.font = '12px Fira Sans'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#8D88A3'; ctx.font = '12px Geist, sans-serif'; ctx.textAlign = 'center';
       ctx.fillText(stateMessages[projection.state] || projection.message || 'Projection unavailable.', canvas.width/2, canvas.height/2);
       setEl('emb-count', projection.state); return;
     }
     let points = Array.isArray(projection) ? projection : projection.points;
     if (!points || !Array.isArray(points) || !points.length) {
-      ctx.fillStyle = '#64748b'; ctx.font = '12px Fira Sans'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#8D88A3'; ctx.font = '12px Geist, sans-serif'; ctx.textAlign = 'center';
       ctx.fillText('Not enough data (need 3+ memories)', canvas.width/2, canvas.height/2);
       setEl('emb-count', '0 points'); return;
     }
@@ -622,7 +703,7 @@ async function loadEmbedding() {
     pointData.forEach(pt => {
       ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI*2);
       ctx.fillStyle = pt.color; ctx.globalAlpha = 0.7; ctx.fill(); ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = 'rgba(13,11,20,0.9)'; ctx.lineWidth = 1; ctx.stroke();
     });
 
     container.onmousemove = function(e) {
@@ -699,7 +780,7 @@ async function loadClusters() {
     }
     setEl('cl-count', clusters.length + ' displayed clusters');
     if (!clusters.length) { el.innerHTML = '<div class="empty-state">No clusters</div>'; return; }
-    const clColors = ['#3b82f6','#f59e0b','#22c55e','#a78bfa','#f43f5e','#6366f1','#14b8a6','#e879f9','#fb923c','#64748b'];
+    const clColors = ['#A98BFF','#5FE3D0','#FFB547','#5BD69B','#FF6B78','#6CB6FF','#E39BFF','#B9E26A','#FF9A5C','#8D88A3'];
     el.innerHTML = clusters.map((c, i) => {
       const name = clusterName(c.members || []);
       return '<div class="dup-group">' +
@@ -733,7 +814,7 @@ async function loadStale() {
         catBadge(m.category) +
         '<span style="flex:1;">' + escapeHtml((m.content||'').substring(0,140)) + '</span>' +
         '<span style="color:var(--muted);font-size:10px;">' + age(m.created_at) + '</span>' +
-        '<span style="font-size:10px;color:#fca5a5;">' + ((m.quality||0)*100).toFixed(0) + '%</span>' +
+        '<span style="font-size:10px;color:var(--red);">' + ((m.quality||0)*100).toFixed(0) + '%</span>' +
       '</div>'
     ).join('');
   } catch(e) { el.innerHTML = '<div class="error-state">Error: ' + escapeHtml(e.message) + '</div>'; }
@@ -754,5 +835,28 @@ async function deleteAllStale() {
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-updateTopStats();
-loadDashboard();
+// ═══════════════════════════════════════════════
+// Boot (skipped when the file is loaded without a browser, as in the tests)
+// ═══════════════════════════════════════════════
+
+if (typeof window !== 'undefined' && typeof document.addEventListener === 'function') {
+  // Section links are plain anchors (they work without scripts and can be
+  // opened in a new tab). A click reopens the last view used in that section:
+  // "memories" and "graph" are both a section and a page, so the hash alone
+  // cannot tell "the section" from "its first view".
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest && e.target.closest('.nav-item[data-group]');
+    if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    const page = groupLastPage[link.dataset.group];
+    if (page !== currentPage) window.switchPage(page);
+    else if (typeof closeNav === 'function') closeNav();
+  });
+
+  window.addEventListener('hashchange', () => {
+    const page = pageFromHash(location.hash);
+    if (page && page !== currentPage) window.switchPage(page);
+  });
+
+  switchPage(pageFromHash(location.hash) || 'dashboard');
+}

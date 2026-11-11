@@ -1,0 +1,86 @@
+/* ═══════════════════════════════════════════════
+   LanceDB Memory Explorer: colour and type tokens ("Phosphor UV").
+
+   Every colour of the interface comes from this file. To retheme the viz,
+   override these custom properties (a later stylesheet or a user style);
+   style.css and the scripts only read them.
+
+   The second block keeps the variable names used before 1.6 (--panel,
+   --border, --accent, --indigo...) so inline styles written by older
+   scripts or forks keep a coherent colour.
+   ═══════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest, slightly violet-tinted. */
+  --bg: #0D0B14;
+  --s1: #14121D;
+  --s2: #1A1825;
+  --s3: #22202E;
+  --bg-elev: #17141F;
+
+  /* Lines. */
+  --line: #2A2738;
+  --line2: #373347;
+  --line3: #4B465F;
+
+  /* Text. */
+  --text: #EDEBF5;
+  --dim: #ADA8BF;
+  --mute: #8D88A3;
+
+  /* Accent: ultraviolet. --acc-ink is text drawn on an --acc fill. */
+  --acc: #A98BFF;
+  --acc-2: #C9B6FF;
+  --acc-ink: #140B33;
+
+  /* Signals. */
+  --green: #5BD69B;
+  --red: #FF6B78;
+  --amber: #FFB547;
+  --blue: #6CB6FF;
+  --cyan: #5FE3D0;
+
+  /* Memory categories (badges, bars, projection dots, graph nodes).
+     graph.js keeps the same values for the canvas, which cannot read CSS. */
+  --cat-user_pref: #E39BFF;
+  --cat-project: #5BD69B;
+  --cat-tech: #FFB547;
+  --cat-correction: #FF6B78;
+  --cat-fact: #5FE3D0;
+  --cat-decision: #A98BFF;
+  --cat-insight: #B9E26A;
+  --cat-reference: #6CB6FF;
+  --cat-pattern: #FF9A5C;
+  --cat-question: #C9B6FF;
+
+  /* Tiers: T1 critical, T2 important, T3 context. */
+  --tier-1: #FF6B78;
+  --tier-2: #FFB547;
+  --tier-3: #A98BFF;
+
+  /* Type. */
+  --font: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Shape. */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+}
+
+/* Names used before 1.6. */
+:root {
+  --panel: var(--s1);
+  --panel-hover: var(--s2);
+  --border: var(--line);
+  --border-glow: var(--line3);
+  --indigo: var(--acc);
+  --accent: var(--acc);
+  --accent-soft: var(--acc-2);
+  --muted: var(--mute);
+  --red-soft: #FF9AA3;
+  --amber-soft: #FFCB80;
+  --purple: var(--acc);
+}

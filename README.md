@@ -33,9 +33,9 @@ visualizer with a plugin attached:
   auto-tagging, quality decay, target-ID relations, local query routing, one-hop
   graph recall, and deterministic contradiction detection.
 - **Visualizer** (`server/` + `static/`) - lightweight web UI, normally run in
-  Docker on port 7777, with an optional systemd fallback on port 7778. 11 pages:
-  Dashboard, Memories, Timeline, Tags, Duplicates, Conflicts, Review, Embeddings,
-  Clusters, Stale, and Graph. [See the screenshots](#visualizer).
+  Docker on port 7777, with an optional systemd fallback on port 7778. Five
+  sections: Overview, Memories (list, timeline, tags), Graph (links, clusters),
+  Hygiene (conflicts, duplicates, stale, review) and Health. [See the screenshots](#visualizer).
 - **Scripts** (`scripts/`) - relation migration, contradiction backfill,
   re-embedding, duplicate consolidation, deployment, and verification.
 - **Audit harness** (`audit/repro/`) - the retrieval retention gate, write-cost
@@ -401,7 +401,15 @@ routed locally without an LLM call.
 
 ## Visualizer
 
-A lightweight web UI with 11 pages, served on `127.0.0.1:7777`.
+A lightweight web UI served on `127.0.0.1:7777`. Its eleven pages are grouped in five
+sections; each page keeps its own URL (`/#graph`, `/#stale`, `/#review`...), and a
+section name (`/#overview`, `/#hygiene`, `/#health`) opens the last view used in it.
+On a phone or a folded foldable the sections sit in a bottom tab bar.
+
+Since 1.6 every colour comes from `static/tokens.css` ("Phosphor UV": violet-tinted
+dark surfaces, one ultraviolet accent, one colour per memory category). To retheme the
+visualizer, override those custom properties; the variable names of earlier versions
+(`--panel`, `--border`, `--accent`...) still resolve.
 
 > The screenshots below come from `docs/screenshots/`, captured against a **synthetic
 > fixture** of 18 invented memories. No screenshot contains data from a real database.
@@ -455,19 +463,19 @@ selection was truncated; opening the root page does not precompute the projectio
 
 ### Pages
 
-| Page | What it shows |
-|---|---|
-| **Dashboard** | totals, category breakdown, tier distribution, most-accessed memories |
-| **Memories** | paginated list (20/page), filters by category, type, tag, quality, date, and search |
-| **Timeline** | memories grouped by day |
-| **Tags** | every tag with its count, plus rename, merge and delete |
-| **Duplicates** | near-duplicate groups by cosine similarity, threshold slider |
-| **Conflicts** | same-subject claims that contradict each other, open and resolved |
-| **Review** | bounded read-only consistency inbox: format drift, contradictions, broken references |
-| **Embeddings** | UMAP 2D projection of all vectors + local health diagnostics |
-| **Clusters** | deterministic semantic clusters plus largest-group concentration, coverage, isolated-memory count, and a low-discrimination warning |
-| **Stale** | old and low-quality memories, the cleanup candidates |
-| **Graph** | whole corpus by default, embedding links, optional typed-relation overlay, hub grouping, freshness halo, tier filter |
+| Section | Page (URL hash) | What it shows |
+|---|---|---|
+| Overview | **Dashboard** (`#dashboard`) | totals, writes in the last 24h, never-recalled count, category and tier breakdown, recently written, most recalled, open conflicts |
+| Memories | **Memories** (`#memories`) | paginated list (20/page), filters by category, type, tag, quality, date, and search |
+| Memories | **Timeline** (`#timeline`) | memories grouped by day |
+| Memories | **Tags** (`#tags`) | every tag with its count, plus rename, merge and delete |
+| Hygiene | **Duplicates** (`#duplicates`) | near-duplicate groups by cosine similarity, threshold slider |
+| Hygiene | **Conflicts** (`#conflicts`) | same-subject claims that contradict each other, open and resolved |
+| Hygiene | **Review** (`#review`) | bounded read-only consistency inbox: format drift, contradictions, broken references |
+| Health | **Embeddings** (`#embedding`) | UMAP 2D projection of all vectors + local health diagnostics |
+| Graph | **Clusters** (`#clusters`) | deterministic semantic clusters plus largest-group concentration, coverage, isolated-memory count, and a low-discrimination warning |
+| Hygiene | **Stale** (`#stale`) | old and low-quality memories, the cleanup candidates |
+| Graph | **Graph** (`#graph`) | whole corpus by default, embedding links, optional typed-relation overlay, hub grouping, freshness halo, tier filter |
 
 ### API endpoints
 

@@ -1,58 +1,46 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>LanceDB — Memory Graph</title>
+<title>Memory · LanceDB</title>
+<meta name="theme-color" content="#0D0B14">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?12">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/tokens.css?1">
+<link rel="stylesheet" href="/static/style.css?13">
 </head>
 <body>
 
 <div id="app">
-  <!-- ═══ Nav ═══ -->
+  <!-- ═══ Sections. Each old page id still works as a URL hash (#graph, #stale...). ═══ -->
   <div id="nav-scrim" onclick="closeNav()"></div>
-  <div id="nav">
+  <nav id="nav" aria-label="Sections">
     <div id="nav-header">
-      <span>◆ LanceDB</span>
-      <button id="nav-close" type="button" aria-label="Close navigation" onclick="closeNav()">x</button>
+      <a class="brand" href="#overview" aria-label="Memory explorer, overview">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="15" r="2.5" fill="currentColor"/><path d="M7 7l2 6M13 7l-2 6" stroke="currentColor" stroke-width="1.2"/></svg>
+        <span>Memory</span><small>lancedb</small>
+      </a>
+      <button id="nav-close" type="button" aria-label="Close navigation" onclick="closeNav()">×</button>
     </div>
-    <div class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h4v4H2zM10 4h4v4h-4zM2 10h4v4H2zM10 10h4v4h-4z"/></svg></span><span>Dashboard</span>
-    </div>
-    <div class="nav-item" data-page="memories" onclick="switchPage('memories')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h7"/></svg></span><span>Memories</span>
-    </div>
-    <div class="nav-item" data-page="timeline" onclick="switchPage('timeline')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12"/><path d="M5 1v3M11 1v3"/></svg></span><span>Timeline</span>
-    </div>
-    <div class="nav-item" data-page="tags" onclick="switchPage('tags')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l5 1v10l-5 1z"/><path d="M7 3h6v10H7"/><circle cx="5" cy="8.5" r=".8" fill="currentColor"/></svg></span><span>Tags</span>
-    </div>
-    <div class="nav-item" data-page="duplicates" onclick="switchPage('duplicates')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="10" height="10" rx="1"/><rect x="5" y="1" width="10" height="10" rx="1"/></svg></span><span>Duplicates</span>
-    </div>
-    <div class="nav-item" data-page="conflicts" onclick="switchPage('conflicts')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 11H2L8 2z"/><path d="M8 6v3M8 11v1"/></svg></span><span>Conflicts</span>
-    </div>
-    <div class="nav-item" data-page="review" onclick="switchPage('review')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h7l3 3v8H3v-11z"/><path d="M10 2.5v3h3"/><path d="M5.5 9l1.5 1.5L10.5 7"/></svg></span><span>Review</span>
-    </div>
-    <div class="nav-item" data-page="embedding" onclick="switchPage('embedding')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="8" cy="9" r="1.5"/><circle cx="3" cy="12" r="1.5"/><circle cx="12" cy="11" r="1.5"/></svg></span><span>Embeddings</span>
-    </div>
-    <div class="nav-item" data-page="clusters" onclick="switchPage('clusters')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3"/><circle cx="11" cy="6" r="2.5"/><circle cx="7" cy="12" r="2.5"/></svg></span><span>Clusters</span>
-    </div>
-    <div class="nav-item" data-page="stale" onclick="switchPage('stale')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 2.5"/></svg></span><span>Stale</span>
-    </div>
-    <div class="nav-item" data-page="graph" onclick="switchPage('graph')">
-      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="1.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="8" cy="12" r="1.5"/><path d="M4 5.5v0M5.5 4h5M9.5 11L12 5.5M4 5.5L6.5 11"/></svg></span><span>Graph</span>
-    </div>
-  </div>
+    <a class="nav-item active" href="#overview" data-page="dashboard" data-group="overview">
+      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></span><span class="nav-label">Overview</span>
+    </a>
+    <a class="nav-item" href="#memories" data-page="memories" data-group="memories">
+      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h7"/></svg></span><span class="nav-label">Memories</span><span class="nav-count" id="nav-count-memories"></span>
+    </a>
+    <a class="nav-item" href="#graph" data-page="graph" data-group="graph">
+      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="1.6"/><circle cx="12" cy="4" r="1.6"/><circle cx="8" cy="12" r="1.6"/><path d="M5.6 4h4.8M11.3 5.4L8.8 10.6M4.7 5.4l2.5 5.2"/></svg></span><span class="nav-label">Graph</span>
+    </a>
+    <a class="nav-item" href="#hygiene" data-page="conflicts" data-group="hygiene">
+      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h7l3 3v8H3v-11z"/><path d="M10 2.5v3h3"/><path d="M5.5 9l1.5 1.5L10.5 7"/></svg></span><span class="nav-label">Hygiene</span><span class="nav-count warn" id="nav-count-hygiene"></span>
+    </a>
+    <a class="nav-item" href="#health" data-page="embedding" data-group="health">
+      <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8.5h3l1.5-4 3 8 1.5-4h4"/></svg></span><span class="nav-label">Health</span>
+    </a>
+    <div id="nav-foot"><span id="nav-db"></span></div>
+  </nav>
 
   <!-- ═══ Main area ═══ -->
   <div id="main-area">
@@ -61,14 +49,32 @@
         <button id="nav-toggle" type="button" aria-label="Open navigation" aria-controls="nav" aria-expanded="false">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 4.5h14M2 9h14M2 13.5h14"/></svg>
         </button>
-        <h1>LanceDB <span>Memory Explorer</span></h1>
+        <h1 id="section-title">Overview</h1>
+        <!-- Lenses of the current section. Their data-page is the page id they open. -->
+        <nav class="lenses" aria-label="Views of this section">
+          <div class="lens-set" data-group="memories">
+            <a class="lens" href="#memories" data-page="memories">List</a>
+            <a class="lens" href="#timeline" data-page="timeline">Timeline</a>
+            <a class="lens" href="#tags" data-page="tags">Tags</a>
+          </div>
+          <div class="lens-set" data-group="graph">
+            <a class="lens" href="#graph" data-page="graph">Links</a>
+            <a class="lens" href="#clusters" data-page="clusters">Clusters</a>
+          </div>
+          <div class="lens-set" data-group="hygiene">
+            <a class="lens" href="#conflicts" data-page="conflicts">Conflicts <span class="lens-n" id="lens-n-conflicts"></span></a>
+            <a class="lens" href="#duplicates" data-page="duplicates">Duplicates</a>
+            <a class="lens" href="#stale" data-page="stale">Stale</a>
+            <a class="lens" href="#review" data-page="review">Review</a>
+          </div>
+        </nav>
       </div>
       <div class="tb-right">
         <div class="tb-stats">
           <span>Memories <b id="mem-count">--</b></span>
           <span>Entities <b id="ent-count">--</b></span>
           <span>Edges <b id="edge-count">--</b></span>
-          <span id="subgraph-count" style="opacity:0.7;font-size:0.9em;"></span>
+          <span id="subgraph-count"></span>
           <span id="db-size"></span>
           <span id="fresh-legend" style="display:none;">
             <span title="< 1h"><span class="dot dot-f0"></span>1h</span>
@@ -88,16 +94,31 @@
     </div>
 
     <div id="content">
-      <!-- ═══ Dashboard ═══ -->
+      <!-- ═══ Overview (page id "dashboard") ═══ -->
       <div id="page-dashboard" class="page active">
         <div class="page-inner">
-          <div class="section-header"><h2>Dashboard</h2></div>
-          <div class="stats-grid" id="dash-stats"></div>
+          <div class="kpis" id="dash-stats"></div>
+          <section class="card">
+            <div class="card-head"><span class="card-title">By category</span><span class="card-meta" id="dash-tiers-line"></span></div>
+            <div id="dash-categories" class="cat-stack"></div>
+          </section>
           <div id="dash-grid" class="dash-grid">
-            <div class="card"><div class="card-title">By Category</div><div id="dash-categories" class="bar-chart"></div></div>
-            <div class="card"><div class="card-title">By Tier</div><div id="dash-tiers" class="bar-chart"></div></div>
-            <div class="card"><div class="card-title">Top Tags</div><div id="dash-tags" class="bar-chart"></div></div>
-            <div class="card"><div class="card-title">Top Accessed</div><div id="dash-accessed"></div></div>
+            <section class="card flush">
+              <div class="card-head"><span class="card-title">Recently written</span><a href="#timeline" class="more">Timeline →</a></div>
+              <div id="dash-recent" class="rows"></div>
+            </section>
+            <div class="dash-side">
+              <section class="card">
+                <div class="card-head"><span class="card-title">Needs attention</span><a href="#hygiene" class="more">Hygiene →</a></div>
+                <div id="dash-attention" class="tiles"></div>
+              </section>
+              <section class="card"><div class="card-head"><span class="card-title">By tier</span></div><div id="dash-tiers" class="bar-chart"></div></section>
+              <section class="card"><div class="card-head"><span class="card-title">Top tags</span><a href="#tags" class="more">Tags →</a></div><div id="dash-tags" class="chips"></div></section>
+            </div>
+            <section class="card flush wide">
+              <div class="card-head"><span class="card-title">Most recalled</span></div>
+              <div id="dash-accessed" class="rows"></div>
+            </section>
           </div>
         </div>
       </div>
@@ -322,7 +343,7 @@
           <div id="sidebar">
             <div id="sidebar-header">
               <span id="sidebar-title">Details</span>
-              <button id="sidebar-close">x</button>
+              <button id="sidebar-close" type="button" aria-label="Close details">×</button>
             </div>
             <div id="sidebar-content">
               <div id="sidebar-empty">Click a node to see details</div>
@@ -338,9 +359,9 @@
 <script src="/static/http.js?1"></script>
 <script src="/static/search-metric.js?1"></script>
 <script src="/static/graph-relations.js?1"></script>
-<script src="/static/graph.js?9"></script>
+<script src="/static/graph.js?10"></script>
 <script src="/static/embedding-health-cache.js?1"></script>
-<script src="/static/app.js?10"></script>
+<script src="/static/app.js?11"></script>
 <script src="/static/responsive.js?3"></script>
 
 </body>

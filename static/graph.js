@@ -14,20 +14,22 @@ const MAX_EDITOR_FACTS = 12;
 const MAX_EDITOR_RELATIONS = 20;
 const GRAPH_LAYOUT_RANDOM_SEED = 20260913;
 
-// Cat colors — neon cyberpunk, dark cores with blazing borders
+// Category colours: the Phosphor UV palette of tokens.css (--cat-*). The canvas
+// cannot read CSS variables, so the values are repeated here. bg is the node core
+// (the colour at 14% over the page), glow drives the freshness halo.
 const catColors = {
-  user_pref:  { bg: '#1a0520', border: '#ff2d8d', label: '#ff6db3', hex: '#ec4899', glow: 'rgba(255,45,141,1.0)' },
-  project:    { bg: '#001a0f', border: '#00ff88', label: '#5cffb0', hex: '#10b981', glow: 'rgba(0,255,136,1.0)' },
-  tech:       { bg: '#1a0e00', border: '#ff9d00', label: '#ffc04d', hex: '#f59e0b', glow: 'rgba(255,157,0,1.0)' },
-  correction: { bg: '#1a0005', border: '#ff2244', label: '#ff6682', hex: '#ef4444', glow: 'rgba(255,34,68,1.0)' },
-  fact:       { bg: '#001a1f', border: '#00ddff', label: '#66eeff', hex: '#06b6d4', glow: 'rgba(0,221,255,1.0)' },
-  decision:   { bg: '#0f0020', border: '#aa44ff', label: '#cc88ff', hex: '#8b5cf6', glow: 'rgba(170,68,255,1.0)' },
-  insight:    { bg: '#001a05', border: '#44ff66', label: '#88ff99', hex: '#22c55e', glow: 'rgba(68,255,102,1.0)' },
-  reference:  { bg: '#000d1a', border: '#3399ff', label: '#77bbff', hex: '#3b82f6', glow: 'rgba(51,153,255,1.0)' },
-  pattern:    { bg: '#1a0800', border: '#ff6611', label: '#ff9944', hex: '#f97316', glow: 'rgba(255,102,17,1.0)' },
-  question:   { bg: '#12001a', border: '#dd33ff', label: '#ee77ff', hex: '#a855f7', glow: 'rgba(221,51,255,1.0)' },
+  user_pref:  { bg: '#2B1F35', border: '#E39BFF', label: '#EBB9FF', hex: '#E39BFF', glow: 'rgba(227,155,255,1.0)' },
+  project:    { bg: '#182727', border: '#5BD69B', label: '#8CE2B9', hex: '#5BD69B', glow: 'rgba(91,214,155,1.0)' },
+  tech:       { bg: '#2F231B', border: '#FFB547', label: '#FFCB7E', hex: '#FFB547', glow: 'rgba(255,181,71,1.0)' },
+  correction: { bg: '#2F1822', border: '#FF6B78', label: '#FF97A0', hex: '#FF6B78', glow: 'rgba(255,107,120,1.0)' },
+  fact:       { bg: '#18292E', border: '#5FE3D0', label: '#8FEBDE', hex: '#5FE3D0', glow: 'rgba(95,227,208,1.0)' },
+  decision:   { bg: '#231D35', border: '#A98BFF', label: '#C3AEFF', hex: '#A98BFF', glow: 'rgba(169,139,255,1.0)' },
+  insight:    { bg: '#252920', border: '#B9E26A', label: '#CEEB97', hex: '#B9E26A', glow: 'rgba(185,226,106,1.0)' },
+  reference:  { bg: '#1A2335', border: '#6CB6FF', label: '#98CCFF', hex: '#6CB6FF', glow: 'rgba(108,182,255,1.0)' },
+  pattern:    { bg: '#2F1F1E', border: '#FF9A5C', label: '#FFB88D', hex: '#FF9A5C', glow: 'rgba(255,154,92,1.0)' },
+  question:   { bg: '#272335', border: '#C9B6FF', label: '#D9CCFF', hex: '#C9B6FF', glow: 'rgba(201,182,255,1.0)' },
 };
-const defaultColor = { bg: '#12122a', border: '#6677ff', label: '#99aaff', hex: '#6366f1', glow: 'rgba(102,119,255,0.8)' };
+const defaultColor = { bg: '#1E1A2E', border: '#A98BFF', label: '#C9B6FF', hex: '#A98BFF', glow: 'rgba(169,139,255,0.8)' };
 const catLabels = {
   user_pref: 'Pref', project: 'Project', tech: 'Tech',
   correction: 'Correction', fact: 'Fact', decision: 'Decision',
@@ -44,20 +46,20 @@ const colorHexDef = defaultColor.hex;
 function restingNodeStyle(n) {
   const isHub = n.node_type === 'hub';
   const c = isHub
-    ? { bg: '#12122a', border: '#818cf8', label: '#a5b4fc', glow: 'rgba(99,102,241,0.5)' }
+    ? { bg: '#1A1825', border: '#A98BFF', label: '#C9B6FF', glow: 'rgba(169,139,255,0.5)' }
     : (catColors[n.category] || defaultColor);
 
   // Freshness — glow driven by the category colour, the newer the brighter.
   let ageBorder = c.border, ageGlow = c.glow, ageBW = 2, ageShadow = 10, ageLabel = '';
   if (!isHub && n.created_at) {
     const ageHours = (Date.now()/1000 - n.created_at) / 3600;
-    if (ageHours < 1)        { ageBorder = '#ffffff'; ageGlow = c.glow;                      ageBW = 4; ageShadow = 30; ageLabel = ' ◉'; }
-    else if (ageHours < 6)   { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.9');  ageBW = 3; ageShadow = 22; }
-    else if (ageHours < 24)  { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.7');  ageBW = 3; ageShadow = 16; }
-    else if (ageHours < 72)  { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.5');  ageBW = 2; ageShadow = 11; }
-    else if (ageHours < 168) { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.35'); ageBW = 2; ageShadow = 8; }
-    else if (ageHours < 720) { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.2');  ageBW = 1; ageShadow = 5; }
-    else                     { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.08'); ageBW = 1; ageShadow = 3; }
+    if (ageHours < 1)        { ageBorder = '#ffffff'; ageGlow = c.glow.replace('1.0','0.75'); ageBW = 3; ageShadow = 20; ageLabel = ' ◉'; }
+    else if (ageHours < 6)   { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.55'); ageBW = 3; ageShadow = 14; }
+    else if (ageHours < 24)  { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.4');  ageBW = 2; ageShadow = 10; }
+    else if (ageHours < 72)  { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.25'); ageBW = 2; ageShadow = 7; }
+    else if (ageHours < 168) { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.15'); ageBW = 2; ageShadow = 5; }
+    else if (ageHours < 720) { ageBorder = c.border;  ageGlow = c.glow.replace('1.0','0.08'); ageBW = 1.5; ageShadow = 3; }
+    else                     { ageBorder = c.border;  ageGlow = 'rgba(0,0,0,0)';             ageBW = 1.5; ageShadow = 0; }
   }
 
   const sz = isHub ? 32 : Math.max(22, (n.size || 20) + Math.min((n.access_count || 0) * 0.5, 8));
@@ -70,7 +72,7 @@ function restingNodeStyle(n) {
       highlight: { background: c.bg, border: '#ffffff' },
       hover: { background: c.bg, border: '#ffffff' },
     },
-    font: { color: c.label, size: isHub ? 13 : 11, face: 'Fira Code, monospace', strokeWidth: 0 },
+    font: { color: c.label, size: isHub ? 13 : 11, face: 'Geist Mono, ui-monospace, monospace', strokeWidth: 0 },
     size: sz, shape: isHub ? 'box' : 'dot',
     borderWidth: ageBW, borderWidthSelected: 3,
     shadow: { enabled: true, color: ageGlow, size: ageShadow, x: 0, y: 0 },
@@ -174,8 +176,8 @@ function renderGraph() {
           color: visual.color,
           size: 8,
           strokeWidth: 2,
-          strokeColor: '#080811',
-          background: 'rgba(8,8,17,0.72)',
+          strokeColor: '#0D0B14',
+          background: 'rgba(13,11,20,0.78)',
           align: 'middle',
         },
         arrows: {to: {enabled: true, scaleFactor: 0.38}},
@@ -185,13 +187,13 @@ function renderGraph() {
     return {
       from: e.from, to: e.to, label: e.label || '', kind: 'semantic',
       color: {
-        color: '#3a3a6a',
-        highlight: '#818cf8',
-        hover: '#a5b4fc',
-        opacity: 0.42,
+        color: '#5A5470',
+        highlight: '#A98BFF',
+        hover: '#C9B6FF',
+        opacity: 0.5,
       },
       width: 0.85,
-      dashes: [3,6], font: {color:'#64748b', size:9, strokeWidth:0},
+      dashes: [3,6], font: {color:'#8D88A3', size:9, strokeWidth:0},
       arrows:{to:{enabled:false}}, smooth:{type:'curvedCW', roundness:0.15},
     };
   });
@@ -305,12 +307,12 @@ function highlightTypedRelations(nodeId) {
       id: id,
       borderWidth: 3,
       borderWidthSelected: 4,
-      shadow: { enabled: true, color: 'rgba(167,139,250,0.7)', size: 18, x: 0, y: 0 },
+      shadow: { enabled: true, color: 'rgba(169,139,255,0.55)', size: 14, x: 0, y: 0 },
       color: {
-        background: node.node_type === 'hub' ? '#12122a' : (catColors[node.category] || defaultColor).bg,
-        border: '#a78bfa',
-        highlight: { border: '#c4b5fd' },
-        hover: { border: '#ddd6fe' },
+        background: node.node_type === 'hub' ? '#1A1825' : (catColors[node.category] || defaultColor).bg,
+        border: '#A98BFF',
+        highlight: { border: '#C9B6FF' },
+        hover: { border: '#E4DAFF' },
       },
     });
   });
@@ -393,14 +395,14 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
   let freshnessLabel = 'Old', freshnessColor = '#555';
   if (ageHours !== null) {
     if (ageHours < 1)       { freshnessLabel = '< 1h'; freshnessColor = '#ffffff'; }
-    else if (ageHours < 6)  { freshnessLabel = Math.floor(ageHours) + 'h'; freshnessColor = '#c7d2fe'; }
-    else if (ageHours < 24) { freshnessLabel = Math.floor(ageHours) + 'h'; freshnessColor = '#a5b4fc'; }
-    else if (ageHours < 72) { freshnessLabel = Math.floor(ageHours/24) + 'd'; freshnessColor = '#818cf8'; }
-    else                    { freshnessLabel = Math.floor(ageHours/24) + 'd'; freshnessColor = '#6366f1'; }
+    else if (ageHours < 6)  { freshnessLabel = Math.floor(ageHours) + 'h'; freshnessColor = '#C9B6FF'; }
+    else if (ageHours < 24) { freshnessLabel = Math.floor(ageHours) + 'h'; freshnessColor = '#A98BFF'; }
+    else if (ageHours < 72) { freshnessLabel = Math.floor(ageHours/24) + 'd'; freshnessColor = '#8D88A3'; }
+    else                    { freshnessLabel = Math.floor(ageHours/24) + 'd'; freshnessColor = '#6E6A85'; }
   }
 
   const q = quality !== null ? quality : 0;
-  const qColor = q >= 0.8 ? '#4ade80' : q >= 0.5 ? '#fbbf24' : '#f87171';
+  const qColor = q >= 0.8 ? '#5BD69B' : q >= 0.5 ? '#FFB547' : '#FF6B78';
   const relCount = typedEdgesCount + nEdges;
 
   let statsHtml = '<div class="detail-stats">' +
@@ -473,7 +475,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
     relatedHtml = '<div class="detail-links-list"><div class="detail-meta">Related (' + relatedItems.length + ')</div>';
     relatedItems.forEach(item => {
       const typeClass = item.type === 'shared' ? 'typed-tag-shared' : 'typed-tag';
-      const relationColor = item.type === 'shared' ? '#66eeff' : relationVisual(item.type).color;
+      const relationColor = item.type === 'shared' ? '#5FE3D0' : relationVisual(item.type).color;
       relatedHtml += '<div class="detail-link-item typed-link" style="--relation-color:' + relationColor + '" onclick="openSidebar(\'' + escapeJsString(item.id) + '\')">' +
         '<span class="cat-badge cat-' + safeCategory(item.cat) + '" style="font-size:9px;padding:1px 6px;margin-bottom:0">' + escapeHtml(catLabels[safeCategory(item.cat)] || '?') + '</span>' +
         '<span class="' + typeClass + '">' + escapeHtml(item.type) + '</span>' +
@@ -487,7 +489,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
   // ─── Similar (vector cosine) — filtered by threshold ───
   let vecHtml = '';
   if (vectorEdges.length) {
-    vecHtml = '<div class="detail-links-list"><div class="detail-meta" style="color:#818cf8;">Similar by embedding (' + vectorEdges.length + ')</div>';
+    vecHtml = '<div class="detail-links-list"><div class="detail-meta" style="color:var(--acc-2);">Similar by embedding (' + vectorEdges.length + ')</div>';
     vectorEdges.sort((a,b) => {
       const sa = parseFloat(a.label) || 0;
       const sb = parseFloat(b.label) || 0;
@@ -498,7 +500,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
       const otherNode = allData.nodes.find(x => x.id === otherId);
       const otherLabel = otherNode ? (otherNode.label || otherNode.title || otherId).substring(0, 50) : otherId;
       const simScore = parseFloat(e.label);
-      const simColor = simScore > 0.9 ? '#6ee7b7' : simScore > 0.8 ? '#a5b4fc' : '#64748b';
+      const simColor = simScore > 0.9 ? '#5BD69B' : simScore > 0.8 ? '#C9B6FF' : '#8D88A3';
       vecHtml += '<div class="detail-link-item" onclick="openSidebar(\'' + escapeJsString(otherId) + '\')">' +
         '<span class="cat-badge cat-' + safeCategory(otherNode?.category) + '" style="font-size:9px;padding:1px 6px;margin-bottom:0">' + escapeHtml(catLabels[safeCategory(otherNode?.category)] || '?') + '</span>' +
         escapeHtml(otherLabel) +
@@ -548,7 +550,7 @@ function renderHubSidebar(content, hubId, hubNode) {
   childNodes.sort((a,b) => ((a.category || '').localeCompare(b.category || '') || (a.label || '').localeCompare(b.label || '')));
 
   let itemsHtml = childNodes.length === 0
-    ? '<div class="detail-meta" style="color:#475569;">No linked nodes.</div>'
+    ? '<div class="detail-meta" style="color:var(--mute);">No linked nodes.</div>'
     : childNodes.map(cn => {
         const lcat = catLabels[cn.category] || cn.category || 'Fact';
         const disp = (cn.title || cn.label || '')[0] === '?' ? (cn.title || cn.label || '').substring(1).trim() : (cn.title || cn.label || '');
@@ -559,7 +561,7 @@ function renderHubSidebar(content, hubId, hubNode) {
 
   content.innerHTML =
     '<div class="cat-badge cat-' + safeCategory(hubNode.category) + '">Hub</div>' +
-    '<div style="font-family:\'Fira Code\',monospace;font-size:13px;color:#a5b4fc;margin-bottom:6px;">' + escapeHtml(hubNode.label || '') + '</div>' +
+    '<div style="font-family:var(--mono);font-size:13px;color:var(--acc-2);margin-bottom:6px;">' + escapeHtml(hubNode.label || '') + '</div>' +
     '<div class="detail-meta" style="margin-bottom:12px;">' + escapeHtml(hubNode.title || hubNode.label || '') + '</div>' +
     '<div class="detail-meta">' + childNodes.length + ' linked memories:</div>' +
     '<div class="detail-links-list" style="margin-top:8px;">' + itemsHtml + '</div>' +
