@@ -229,9 +229,10 @@ already know, a few at a time, in plain words; skip the rest.
 
 **A health check to offer.** Measure, then recommend, then let the user pick:
 
-1. `curl -fsS http://127.0.0.1:7777/api/stats` - size, categories, `ages`, and
-   `access` (a large share never recalled means memories are written but not
-   found, or not worth keeping).
+1. `curl -fsS http://127.0.0.1:7777/api/stats` - size, categories, tiers, `ages`.
+   Ignore `access`: reads stopped counting accesses on 2026-09-11 (reads never
+   write), so it describes old usage only. Count memories without typed
+   relations instead (`/api/typed-edges`): a large share means an unlinked graph.
 2. `curl -fsS http://127.0.0.1:7777/api/maintenance/compact/plan` - fragments,
    FTS lag, whether maintenance is due or deferred.
 3. `curl -fsS http://127.0.0.1:7777/api/review` - format drift, contradictions,

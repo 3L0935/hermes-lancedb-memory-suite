@@ -475,8 +475,9 @@ visualizer, override those custom properties; the variable names of earlier vers
 
 ### Overview
 
-Totals, what was written in the last 24 hours, memories never recalled, the category and tier
-breakdown, recently written and most recalled memories, and what needs attention. Each
+Totals, what was written in the last 24 hours, memories without any typed relation, the
+category and tier breakdown, recently written and most linked memories, and what needs
+attention. Each
 attention tile counts exactly what its page lists.
 
 ![Overview](docs/screenshots/01-overview.png)
@@ -545,7 +546,7 @@ scrolls sideways. Graph filters fold behind one button.
 
 | Section | Page (URL hash) | What it shows |
 |---|---|---|
-| Overview | **Dashboard** (`#dashboard`) | totals, writes in the last 24h, never-recalled count, category and tier breakdown, recently written, most recalled, open conflicts |
+| Overview | **Dashboard** (`#dashboard`) | totals, writes in the last 24h, memories without relations, category and tier breakdown, recently written, most linked, open conflicts |
 | Memories | **Memories** (`#memories`) | paginated list (20/page), filters by category, type, tag, quality, date, and search |
 | Memories | **Timeline** (`#timeline`) | memories grouped by day |
 | Memories | **Tags** (`#tags`) | every tag with its count, plus rename, merge and delete |
@@ -605,7 +606,7 @@ POST /api/tags/delete                    — remove one tag
 POST /api/tags/merge                     — merge tags
 POST /api/maintenance/compact            — confirmed backup, compaction, and verification
 POST /api/memories/:id                   — contract-validated memory update
-POST /api/memories/:id/access            — increment access count
+POST /api/memories/:id/access            — return access_count (frozen: reads stopped counting on 2026-09-11, reads never write)
 POST /api/memories/:id/preview           — validate and render an update without writing
 ```
 

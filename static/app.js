@@ -152,19 +152,28 @@ async function loadDashboard() {
   const el = document.getElementById('dash-stats');
   el.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading...</div></div>';
   try {
-    const [stats, dash, timeline] = await Promise.all([
+    const [stats, dash, timeline, typed] = await Promise.all([
       fetch(API + '/stats').then(r => r.json()),
       fetch(API + '/dashboard').then(r => r.json()),
       fetch(API + '/timeline').then(r => r.json()).catch(() => []),
+      fetch(API + '/typed-edges').then(r => r.json()).catch(() => ({})),
     ]);
 
     const tiers = dash.tiers || stats.tiers || {};
     const cats = dash.categories || {};
     const ages = stats.ages || {};
-    const access = stats.access || {};
     const total = stats.total_memories || dash.total || 0;
     const fresh = (ages['<1h'] || 0) + (ages['1-24h'] || 0);
-    const never = access['0'] || 0;
+    // Typed relations, not access_count: reads stopped counting accesses on
+    // 2026-09-11 (reads never write), so a recall count would be frozen data.
+    const edges = Array.isArray(typed) ? typed : (typed.edges || []);
+    const degree = {};
+    edges.forEach(e => {
+      if (e.from) degree[e.from] = (degree[e.from] || 0) + 1;
+      if (e.to) degree[e.to] = (degree[e.to] || 0) + 1;
+    });
+    const linked = Object.keys(degree).length;
+    const unlinked = Math.max(0, total - linked);
 
     const kpi = (label, value, sub, color) =>
       '<div class="kpi"><div class="lbl">' + escapeHtml(label) + '</div>' +
@@ -174,7 +183,7 @@ async function loadDashboard() {
       kpi('Memories', fmtInt(total), fresh ? fresh + ' written in 24h' : 'none in 24h'),
       kpi('Entities', fmtInt(stats.total_entities), 'named things'),
       kpi('Links', fmtInt(stats.total_edges), fmtInt(stats.total_semantic_edges) + ' by similarity'),
-      kpi('Never recalled', fmtInt(never), total ? Math.round(never / total * 100) + '% of memories' : '', never ? 'var(--amber)' : ''),
+      kpi('Without relations', fmtInt(unlinked), total ? Math.round(unlinked / total * 100) + '% of memories' : '', total && unlinked / total > 0.3 ? 'var(--amber)' : ''),
       kpi('Disk', (stats.db_size_mb != null ? stats.db_size_mb : '?') + ' MB', 'avg quality ' + Math.round((dash.avg_quality || 0) * 100) + '%'),
     ].join('');
 
@@ -214,11 +223,15 @@ async function loadDashboard() {
       ? recent.map(m => row(m, age(m.created_at))).join('')
       : '<div class="empty-state">Nothing written yet</div>';
 
-    // Most recalled
-    const top = dash.top_accessed || [];
-    document.getElementById('dash-accessed').innerHTML = top.length
-      ? top.slice(0, 8).map(m => row(m, (m.access_count || 0) + '×')).join('')
-      : '<div class="empty-state">No recall recorded yet</div>';
+    // Most linked: the memories the graph hangs on (usually project hubs).
+    let days2 = timeline;
+    if (days2 && !Array.isArray(days2) && Array.isArray(days2.timeline)) days2 = days2.timeline;
+    const byId = {};
+    (Array.isArray(days2) ? days2 : []).forEach(g => (g.memories || []).forEach(m => { byId[m.id] = m; }));
+    const hubs = Object.entries(degree).filter(([id]) => byId[id]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    document.getElementById('dash-accessed').innerHTML = hubs.length
+      ? hubs.map(([id, n]) => row(byId[id], n + (n === 1 ? ' link' : ' links'))).join('')
+      : '<div class="empty-state">No typed relations yet</div>';
 
     // Needs attention: cheap numbers only; scans stay on their own page.
     const attention = document.getElementById('dash-attention');
