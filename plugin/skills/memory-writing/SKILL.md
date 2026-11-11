@@ -1,7 +1,7 @@
 ---
 name: memory-writing
 description: How to write LanceDB memories that come back when needed - when to write, the shape (small, linked), updates, relations, and the contract's traps. Load before the first lancedb_add or lancedb_update of a session.
-version: 10.0.0
+version: 10.1.0
 triggers:
   - lancedb_add
   - lancedb_update
@@ -18,6 +18,11 @@ and lasting preferences. The built-in `MEMORY.md` / `USER.md` hold identity and
 working conventions only (see [Built-in memory or LanceDB](#built-in-memory-or-lancedb)).
 
 Never store secrets, credentials, task progress, or unverified speculation.
+
+**Right after loading this skill, load the user's companion skill `memory-writing`**
+(the same short name without the `lancedb-suite:` prefix) if it appears in your
+skill list. It holds this user's own rules and wins over this skill wherever
+they differ. See [The companion skill](#the-companion-skill-the-users-own-rules).
 
 ## When to write (without being asked)
 
@@ -220,6 +225,45 @@ Test: "is this about who the user is or how they like to work?" -> built-in
 - When moving technical entries out of the built-in files, write them to
   LanceDB first and confirm they are stored. **Never delete built-in entries
   without the user's confirmation**: report them as candidates instead.
+
+## The companion skill: the user's own rules
+
+This skill is the same for everyone. What is specific to one user lives in
+**their** skill named `memory-writing` (in their own skills, not the plugin's):
+their naming conventions (domains, hub subjects), what they want stored or never
+stored, how much you may do without asking, pitfalls met on their setup, dated
+decisions about their memory. Facts themselves still go to LanceDB; the
+companion holds *rules about handling memory* for this user.
+
+- **Read it** after this skill, before the first write of a session.
+- **Record a rule in it** when the user states one ("always link to the project
+  hub", "never store anything about X", "ask before deleting"), when they correct
+  how you handled memory, or when you hit a pitfall that only exists on their
+  setup. One short line each, dated, with the reason when known.
+- **Update or drop** a rule that the user reverses or that stopped being true,
+  rather than adding a contradicting one.
+- **Create it** the first time there is something to record and it does not exist,
+  with `skill_manage` (`action: create`, `name: memory-writing`), starting from:
+
+  ```markdown
+  ---
+  name: memory-writing
+  description: "<user>'s own rules for LanceDB memory. Load after lancedb-suite:memory-writing; wins where they differ."
+  version: 1.0.0
+  ---
+
+  # Memory writing: <user>'s rules
+
+  Complement of `lancedb-suite:memory-writing`. Rules here win where they differ.
+
+  ## Rules
+  - (YYYY-MM-DD) <rule> - <why>
+  ```
+
+- Edit it with `skill_manage` `patch`. Hermes may stage skill writes for the
+  user's approval; say what you added and why either way.
+- Keep it short and personal: no secrets, no copy of this skill. A rule that
+  would help every user is worth telling the user about, not storing there.
 
 ## Before every write
 

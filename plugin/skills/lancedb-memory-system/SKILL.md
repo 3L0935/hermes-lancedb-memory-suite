@@ -1,7 +1,7 @@
 ---
 name: lancedb-memory-system
 description: "LanceDB memory architecture, deployment, and how to change it - including how to tailor it to its user by asking before changing behaviour."
-version: 7.1.0
+version: 7.2.0
 triggers:
   - "memory setup"
   - "tune memory"
@@ -242,6 +242,15 @@ already know, a few at a time, in plain words; skip the rest.
 
 Report findings as a short list of "what I saw -> what I suggest -> what it
 costs", one decision per line, and apply only what the user approves.
+
+**Record the outcome in the user's companion skill `lancedb-memory-system`** (their
+own skill of that name, read after this one): the settings chosen and why, what
+they declined, their deployment specifics (paths, ports, how the viz is reached,
+what restarts what) and pitfalls met on their machine, dated. Next session reads
+it instead of asking again. Create it with `skill_manage` if it does not exist
+(frontmatter `name: lancedb-memory-system`, a description saying it complements
+`lancedb-suite:lancedb-memory-system`), patch it afterwards. Never store
+credentials there.
 
 ## Changing the system
 

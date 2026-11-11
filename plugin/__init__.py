@@ -480,7 +480,8 @@ DAILY_REVIEW_NAME = "LanceDB daily memory review"
 DAILY_REVIEW_PROMPT = (
     "You are the daily memory reviewer. Curate the LanceDB memory from the user's "
     "conversations of the last 24 hours.\n"
-    "1. Load skill lancedb-suite:memory-writing.\n"
+    "1. Load skill lancedb-suite:memory-writing, then the user's own memory-writing skill if "
+    "it exists (their rules win).\n"
     "2. Read the last 24 hours of conversations (session_search). For each durable fact "
     "that is not stored yet, ask: will this matter in two weeks? Durable means a "
     "correction, a decision and its reason, a path/port/command/config or fix found after "
@@ -492,7 +493,9 @@ DAILY_REVIEW_PROMPT = (
     "supersedes or invalidates it; open conflicts you can settle get lancedb_conflicts "
     "resolve with a note. Deleting memories: {deletes}.\n"
     "5. Never edit MEMORY.md or USER.md and never store secrets or credentials; mention "
-    "suggestions for them in the report instead.\n"
+    "suggestions for them in the report instead. If the conversations contain a rule the "
+    "user gave about how to handle memory, add it to their memory-writing skill "
+    "(create it if missing) and say so in the report.\n"
     "Report in at most 5 lines (Added / Updated / Superseded / Deleted, one subject per "
     "line). If nothing needed doing, respond with exactly [SILENT]."
 )
@@ -694,9 +697,11 @@ class LanceDBMemoryProvider(MemoryProvider):
             "you; a decision is made; a path, port, command, config or fix is found after "
             "effort; the user states a lasting preference or says \"remember\". Write when it "
             "is established, not at the end of the session.\n"
-            "- Before your first write of a session, load skill lancedb-suite:memory-writing. "
-            "Small memories (one claim per fact, key=value), linked with typed relations; "
-            "search first and update instead of duplicating.\n"
+            "- Before your first write of a session, load skill lancedb-suite:memory-writing, "
+            "then the user's own memory-writing skill if listed (their rules win; record new "
+            "rules they give you about memory there). Small memories (one claim per fact, "
+            "key=value), linked with typed relations; search first and update instead of "
+            "duplicating.\n"
         )
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:

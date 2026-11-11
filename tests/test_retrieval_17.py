@@ -149,6 +149,13 @@ class WriteReminderTests(unittest.TestCase):
         block = provider.system_prompt_block()
         self.assertIn("lancedb-suite:memory-writing", block)
         self.assertIn("without being asked", block)
+        # The user's own companion skill is read after the shipped one and receives their rules.
+        self.assertIn("user's own memory-writing skill", block)
+
+    def test_daily_review_loads_and_feeds_the_companion_skill(self):
+        from plugin import DAILY_REVIEW_PROMPT
+        self.assertIn("user's own memory-writing skill", DAILY_REVIEW_PROMPT)
+        self.assertIn("add it to their memory-writing skill", DAILY_REVIEW_PROMPT)
 
 
 _FAKE_CONFIG = types.ModuleType("hermes_cli.config")
