@@ -28,8 +28,11 @@ RUN groupadd -g 1000 appuser && \
 USER appuser
 
 EXPOSE 7777
+# Probe an endpoint that touches the store: GET / serves index.html off a bind mount
+# and returns 200 even when the store import failed, so a "/"-only check calls a
+# fully broken viz healthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7777/')" || exit 1
+    CMD python -c "import urllib.request as u, json; d=json.load(u.urlopen('http://localhost:7777/api/stats')); raise SystemExit(1 if 'error' in d else 0)" || exit 1
 
 ENTRYPOINT ["python", "server.py"]
 CMD ["--port", "7777", "--host", "0.0.0.0"]

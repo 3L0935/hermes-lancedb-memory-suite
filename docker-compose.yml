@@ -20,6 +20,13 @@ services:
       - ~/.hermes/backups:/home/hermes/.hermes/backups:rw
       # Hermes agent code (ro — imports LanceDBStore)
       - ~/.hermes/hermes-agent:/home/hermes/.hermes/hermes-agent:ro
+      # Canonical store module (ro). server.py resolves HERMES_HOME/plugins/
+      # lancedb-suite/store.py FIRST, then falls back to plugins.memory.
+      # lancedb-suite.store. The fallback executes plugins/memory/__init__.py, which
+      # imports hermes_cli.config -> hermes_yaml -> ruamel.yaml; ruamel is NOT in this
+      # image. Without this mount every API answers "LanceDB store module introuvable"
+      # while GET / still returns 200 (see the healthcheck note below).
+      - ~/.hermes/plugins/lancedb-suite:/home/hermes/.hermes/plugins/lancedb-suite:ro
       # Static files from repo (ro — HTML/JS/CSS served to browser)
       - ./static:/app/static:ro
       # Server script from repo (ro)
@@ -27,7 +34,10 @@ services:
       # Health/compaction module imported by server.py (ro)
       - ./server/maintenance.py:/app/maintenance.py:ro
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7777/')\" || exit 1"]
+      # Probe an endpoint that actually touches the store. GET / serves index.html
+      # off the bind mount and returns 200 even when the store import failed, so a
+      # "/"-only check reports healthy on a viz whose every API returns an error.
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u, json; d=json.load(u.urlopen('http://localhost:7777/api/stats')); raise SystemExit(1 if 'error' in d else 0)\" || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 10s
