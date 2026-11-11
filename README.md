@@ -861,8 +861,10 @@ Two invariants worth knowing before you change retrieval:
 
 The production definition is
 `~/github/hermes-hub/services/lancedb-viz/docker-compose.yaml`. It runs image
-`lancedb-viz:local` as container `lancedb-viz`, publishes only
-`127.0.0.1:7777`, and joins the existing external `hub-services` network. It
+`lancedb-viz:local` as container `lancedb-viz`, publishes port 7777 on the address
+set by `LANCEDB_VIZ_BIND` (the Hub defaults to all interfaces, this repository's
+compose to `127.0.0.1`; see [Remote access](#remote-access-lan-tailscale)), and joins
+the existing external `hub-services` network. It
 bind-mounts `server.py`, `maintenance.py`, and `static/` from
 `~/.hermes/lancedb-viz/`, the Hermes Agent tree read-only, and the LanceDB data
 plus `~/.hermes/backups/` read-write.
@@ -876,6 +878,38 @@ docker compose ps
 The repository-level Compose file and `scripts/docker-run.sh` support local
 development; they are not the production service definition. The systemd unit
 on `127.0.0.1:7778` is disabled and reserved for recovery.
+
+### Remote access (LAN, Tailscale)
+
+The viz listens on loopback unless you choose otherwise. Two settings, read by
+both compose files and `scripts/docker-run.sh`:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LANCEDB_VIZ_BIND` | `127.0.0.1` (repository), `0.0.0.0` (Hub) | Address the port is published on: `127.0.0.1` this host only, a Tailscale IP (`100.x.y.z`) the tailnet only, `0.0.0.0` LAN and tailnet. |
+| `LANCEDB_VIZ_TRUSTED_HOSTS` | empty | Extra hostnames allowed to **write** (comma-separated): a tailnet name like `host.tail1234.ts.net` or a `100.x` address. |
+
+Any client that reaches the port can **read**. Writes (edit, delete, import,
+maintenance) are refused with `403 Local same-origin request required` unless the
+`Host` header is this machine or a trusted host, and the browser `Origin` matches
+it; this blocks DNS-rebinding and cross-site posts. Trust only devices you control,
+there is no login.
+
+Three ways to use it over Tailscale:
+
+1. **Tailnet only**: `LANCEDB_VIZ_BIND=100.x.y.z` (this host's Tailscale IP), then
+   open `http://100.x.y.z:7777`. Add the IP or MagicDNS name to
+   `LANCEDB_VIZ_TRUSTED_HOSTS` to edit from there.
+2. **LAN and tailnet**: `LANCEDB_VIZ_BIND=0.0.0.0`. Same trust rule.
+3. **Through `tailscale serve`**, viz left on loopback: `tailscale serve --bg 7777`
+   serves it over HTTPS on the tailnet name (needs HTTPS enabled on the tailnet);
+   trust that name to edit, an `https` origin is accepted for trusted hosts. Do not
+   combine `serve --tcp 7777` with a `0.0.0.0` bind: both claim port 7777 on the
+   tailnet address and the container's port is never published.
+
+After changing the bind, **recreate** the container (`docker compose up -d
+--force-recreate`): `docker restart` keeps the old port specification. Check from
+another machine, not from the host: `curl http://<address>:7777/api/stats`.
 
 ## License
 

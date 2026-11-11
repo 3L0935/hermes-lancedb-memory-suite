@@ -5,8 +5,14 @@ services:
     container_name: lancedb-viz
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7777:7777"
+      # Loopback by default. To reach the viz from other devices set
+      # LANCEDB_VIZ_BIND=0.0.0.0 (LAN + tailnet) or your Tailscale IP (tailnet only)
+      # in .env or the shell, then recreate the container (a restart keeps old ports).
+      # Remote clients can read; writes also need LANCEDB_VIZ_TRUSTED_HOSTS.
+      - "${LANCEDB_VIZ_BIND:-127.0.0.1}:7777:7777"
     environment:
+      # Hostnames allowed to write besides localhost, e.g. host.tail1234.ts.net,100.x.y.z
+      - LANCEDB_VIZ_TRUSTED_HOSTS=${LANCEDB_VIZ_TRUSTED_HOSTS:-}
       # Ollama binds 127.0.0.1 only; use ollama-container-relay.service on the host
       # (socat 172.17.0.1:11435 -> 127.0.0.1:11434). Port 11435, not 11434.
       - OLLAMA_HOST=http://host.docker.internal:11435

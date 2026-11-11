@@ -62,6 +62,19 @@ SEARCH_MAX_DIAGNOSTIC_ROWS = 50
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+def _trusted_hosts() -> set[str]:
+    """Extra hostnames allowed to WRITE, opt-in (LANCEDB_VIZ_TRUSTED_HOSTS).
+
+    Reads are served to any client that can reach the port; writes are refused
+    unless the Host header names this machine, which blocks DNS-rebinding and
+    cross-site posts. To edit from another device you control (a tailnet name
+    such as host.tail1234.ts.net, or a 100.x Tailscale address), list it here,
+    comma-separated. Read at each request so a restart is not needed.
+    """
+    raw = os.environ.get("LANCEDB_VIZ_TRUSTED_HOSTS", "")
+    return {part.strip().lower().strip("[]") for part in raw.split(",") if part.strip()}
+
+
 def _accepts_gzip(value: str | None) -> bool:
     """Return whether gzip is acceptable, honoring explicit q=0 over `*`."""
     if not value:
@@ -171,7 +184,7 @@ def _parse_host_header(value: str) -> tuple[str, int] | None:
         return None
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         return None
-    if hostname not in _LOCAL_HOSTS:
+    if hostname not in _LOCAL_HOSTS and hostname not in _trusted_hosts():
         return None
     return hostname, port
 
@@ -183,15 +196,18 @@ def _origin_matches_host(origin: str, host: tuple[str, int]) -> bool:
         origin_port = parsed.port or (80 if parsed.scheme == "http" else 443)
     except ValueError:
         return False
+    trusted = _trusted_hosts()
+    # A trusted remote host may sit behind an HTTPS proxy (tailscale serve).
+    allowed_schemes = {"http", "https"} if origin_host in trusted else {"http"}
     return bool(
-        parsed.scheme == "http"
+        parsed.scheme in allowed_schemes
         and parsed.path == ""
         and not parsed.username
         and not parsed.password
         and not parsed.query
         and not parsed.fragment
-        and origin_host in _LOCAL_HOSTS
-        and (origin_host, origin_port) == host
+        and (origin_host in _LOCAL_HOSTS or origin_host in trusted)
+        and (origin_host == host[0] and (origin_port == host[1] or origin_host in trusted))
     )
 
 

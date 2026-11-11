@@ -157,6 +157,27 @@ class ServerSecurityTests(unittest.TestCase):
         self.assertEqual(403, status)
         self.assertIn(b"Local same-origin request required", body)
 
+    def test_tailnet_host_cannot_write_unless_trusted(self):
+        headers = {"Host": "lyoko.tail1234.ts.net:7777", "Content-Type": "application/json"}
+        status, _h, _b = self.request("POST", "/api/not-found", body=b"{}", headers=headers)
+        self.assertEqual(403, status)
+        with patch.dict("os.environ", {"LANCEDB_VIZ_TRUSTED_HOSTS": "lyoko.tail1234.ts.net, 100.64.0.7"}):
+            status, _h, body = self.request("POST", "/api/not-found", body=b"{}", headers=headers)
+            self.assertEqual(404, status, body)
+            # Behind tailscale serve: https origin, default port.
+            status, _h, _b = self.request("POST", "/api/not-found", body=b"{}", headers={
+                "Host": "lyoko.tail1234.ts.net", "Origin": "https://lyoko.tail1234.ts.net",
+                "Content-Type": "application/json"})
+            self.assertEqual(404, status)
+            # A trusted host does not make other origins trusted.
+            status, _h, _b = self.request("POST", "/api/not-found", body=b"{}", headers={
+                **headers, "Origin": "https://attacker.example"})
+            self.assertEqual(403, status)
+            status, _h, _b = self.request("POST", "/api/not-found", body=b"{}", headers={
+                "Host": "100.64.0.7:7777", "Origin": "http://lyoko.tail1234.ts.net:7777",
+                "Content-Type": "application/json"})
+            self.assertEqual(403, status)
+
     def test_post_accepts_same_origin_local_json(self):
         authority = f"127.0.0.1:{self.httpd.server_port}"
         status, headers, body = self.request(
@@ -310,12 +331,13 @@ class ConcurrentTransportTests(unittest.TestCase):
 
 
 class ContainerBindingTests(unittest.TestCase):
-    def test_container_ports_are_published_on_ipv4_loopback_only(self):
+    def test_container_ports_default_to_ipv4_loopback(self):
+        """Loopback unless the operator opts in with LANCEDB_VIZ_BIND (LAN/tailnet)."""
         compose = (ROOT / "docker-compose.yml").read_text()
         docker_run = (ROOT / "scripts" / "docker-run.sh").read_text()
 
-        self.assertIn('"127.0.0.1:7777:7777"', compose)
-        self.assertIn('-p "127.0.0.1:${PORT}:7777"', docker_run)
+        self.assertIn('"${LANCEDB_VIZ_BIND:-127.0.0.1}:7777:7777"', compose)
+        self.assertIn('-p "${LANCEDB_VIZ_BIND:-127.0.0.1}:${PORT}:7777"', docker_run)
         self.assertNotIn('- "7777:7777"', compose)
         self.assertNotIn('-p "${PORT}:7777"', docker_run)
 

@@ -224,7 +224,7 @@ already know, a few at a time, in plain words; skip the rest.
 | Do you want a daily review of the last 24 hours? When, and may it delete memories? | Yes -> `daily_review: true`, `daily_review_time`, deletion policy `report` (default) or `allow`. It costs one agent run a day. |
 | Does a local LLM share the GPU with the embedding model? How much VRAM/RAM is free? | Room to spare -> `embed_keep_alive: 10m` or `-1` (no 1-2 s reload per search). Tight -> keep `30s`. |
 | Do searches miss things you know are stored? | Check fragmentation and FTS coverage first (below), then suggest fuller queries or `mode: lexical`; the abstention thresholds are calibrated and only change with a re-run of the benchmark. |
-| Should the visualizer be reachable from your phone or other machines? | Yes -> publish beyond loopback consciously (writes stay local-only); no -> bind `127.0.0.1`. |
+| Should the visualizer be reachable from your phone or other machines (LAN, Tailscale)? Edit from there, or only read? | `LANCEDB_VIZ_BIND` (`127.0.0.1`, a Tailscale IP, or `0.0.0.0`), plus `LANCEDB_VIZ_TRUSTED_HOSTS` with the tailnet name to allow edits. Recreate the container after a bind change. See the README, "Remote access". |
 | Is the hourly maintenance timer installed? | No (catalog install without `deploy-local.sh`) -> offer to install it, or to run the plan periodically. |
 
 **A health check to offer.** Measure, then recommend, then let the user pick:

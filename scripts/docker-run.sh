@@ -22,7 +22,8 @@ echo "Starting ${NAME} on port ${PORT}..."
 docker run -d \
   --name "${NAME}" \
   --restart unless-stopped \
-  -p "127.0.0.1:${PORT}:7777" \
+  -p "${LANCEDB_VIZ_BIND:-127.0.0.1}:${PORT}:7777" \
+  -e LANCEDB_VIZ_TRUSTED_HOSTS="${LANCEDB_VIZ_TRUSTED_HOSTS:-}" \
   -e OLLAMA_HOST="${OLLAMA_HOST:-http://host.docker.internal:11434}" \
   -e HERMES_HOME=/home/hermes/.hermes \
   -v "${HOME}/.hermes/lancedb:/home/hermes/.hermes/lancedb:rw" \
