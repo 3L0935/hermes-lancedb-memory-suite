@@ -27,7 +27,7 @@ from .memory_contract import (
     MemoryContractError,
     MemoryPatch,
     MemoryWrite,
-    contract_warnings,
+    write_warnings,
     memory_fingerprint,
     parse_content,
     parse_content_parts,
@@ -1626,7 +1626,7 @@ class LanceDBStore:
         })
         self._fresh()
         canonical_content = render_content(memory)
-        warning_dicts = [warning.to_dict() for warning in contract_warnings(memory)]
+        warning_dicts = [warning.to_dict() for warning in write_warnings(memory)]
         exact, same_subject, conflicts = self._preflight_memory_write(memory)
 
         if exact is not None:
@@ -1964,7 +1964,7 @@ class LanceDBStore:
                 kwargs["content"] = canonical_content
             if patch.category is not None and candidate.category != existing_category:
                 kwargs["category"] = candidate.category
-            warning_dicts = [warning.to_dict() for warning in contract_warnings(candidate)]
+            warning_dicts = [warning.to_dict() for warning in write_warnings(candidate)]
         else:
             canonical_content = replaced_content
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from plugin import LanceDBMemoryProvider, compact_memory, register
-from plugin.memory_contract import MemoryWrite, contract_warnings
+from plugin.memory_contract import MemoryWrite, contract_warnings, write_warnings
 from server.maintenance import (
     MAINTENANCE_MAX_FRAGMENTS,
     MAINTENANCE_MAX_FTS_UNINDEXED_PCT,
@@ -102,7 +102,7 @@ class DensityWarningTests(unittest.TestCase):
         return MemoryWrite.from_mapping(base)
 
     def codes(self, memory):
-        return [issue.code for issue in contract_warnings(memory)]
+        return [issue.code for issue in write_warnings(memory)]
 
     def test_short_linked_memory_has_no_warning(self):
         self.assertEqual([], self.codes(self.write(
@@ -111,6 +111,11 @@ class DensityWarningTests(unittest.TestCase):
     def test_long_fact_and_missing_relations_warn_without_rejecting(self):
         codes = self.codes(self.write(facts=["x" * 300, "b=2", "c=3"]))
         self.assertEqual(["long_fact", "no_relations"], codes)
+
+    def test_audits_never_see_density_advice(self):
+        """The review inbox re-parses content without relations: advice must not become a format issue."""
+        memory = self.write(facts=["x" * 300, "b=2", "c=3"])
+        self.assertEqual((), contract_warnings(memory))
 
     def test_broad_subject_stays_first(self):
         codes = self.codes(self.write(subject="Project", facts=["a=1", "b=2", "c=3"]))

@@ -59,20 +59,24 @@ visualizer with a plugin attached:
 
 ## Numbers on a real database
 
-Measured on the author's live instance (not a fixture):
+Measured on the author's live instance (not a fixture), 11 November 2026:
 
 | Metric | Value |
 |--------|-------|
-| Memories | 543 |
-| Entities | 1,708 |
-| Typed edges | 234 |
-| Semantic edges | 1,880 |
+| Memories | 729 |
+| Entities | 2,135 |
+| Typed edges | 436 |
+| Semantic edges | 3,350 |
 | Tables | 4 (`memories`, `memory_edges`, `memory_conflicts`, `memory_conflicts_archive`) |
-| Footprint | 20 MB total, 13.2 MB of table data |
+| Footprint | 6.3 MB of database, 21 MB with the two managed backups |
+| Hybrid search | about 50 ms warm, one Ollama call per query |
 
-Retrieval gate, frozen final split: recall@5 0.76 (lexical control) to 0.85
-(corrected hybrid), no-answer false results 1.0 to 0.0. Both are documented with
-the exact command that produced them in `audit/repro/`.
+Retrieval gate, frozen final split (`audit/repro/`): recall@5 0.85 and no-answer false
+results 0.0 when it was frozen. Re-run on a copy of the same store two months later, it reads
+0.74: 5 of the 34 answerable labels point to memories deleted since, and 18% of the rows had
+fallen out of the content FTS index. On the labels that still exist the store scores 0.83,
+and 0.90 (MRR 0.80) once compacted and fully indexed, with no-answer false results still at
+0.0. That second gap is why routine maintenance now reindexes when FTS coverage lags.
 
 ## Architecture
 
@@ -464,14 +468,18 @@ dark surfaces, one ultraviolet accent, one colour per memory category). To rethe
 visualizer, override those custom properties; the variable names of earlier versions
 (`--panel`, `--border`, `--accent`...) still resolve.
 
-> The screenshots below come from `docs/screenshots/`, captured against a **synthetic
-> fixture** of 18 invented memories. No screenshot contains data from a real database.
+> The screenshots come from `docs/screenshots/`, taken against a **fictional vault** of 40
+> invented memories (a homelab and two side projects). Nothing in them comes from a real
+> database. Rebuild the vault with `scripts/demo/build-fictional-vault.py` and retake them
+> with `scripts/demo/readme-screenshots.cjs`.
 
-### Dashboard
+### Overview
 
-Counters, category and tier breakdown, tags, most-accessed memories.
+Totals, what was written in the last 24 hours, memories never recalled, the category and tier
+breakdown, recently written and most recalled memories, and what needs attention. Each
+attention tile counts exactly what its page lists.
 
-![Dashboard](docs/screenshots/01-dashboard.png)
+![Overview](docs/screenshots/01-overview.png)
 
 ### Graph
 
@@ -486,33 +494,52 @@ are never charged to the semantic cap.
 
 | Whole corpus | Memory selected |
 |---|---|
-| ![Graph, whole corpus](docs/screenshots/11-graph-full.png) | ![Graph with a memory selected](docs/screenshots/12-graph-selected.png) |
+| ![Graph, whole corpus](docs/screenshots/05-graph.png) | ![Graph with a memory selected](docs/screenshots/06-graph-selected.png) |
 
-Grouping is switchable at any time: category hubs, entity hubs, or the raw embedding view.
+**Typed** overlays the declared relations (`part_of`, `supersedes`, `depends`...), each type
+with its colour and direction. **Clusters** groups memories by semantic similarity and reports
+concentration, coverage and isolated memories.
 
-![Graph grouped by category hubs](docs/screenshots/13-graph-hubs.png)
+| Typed relations | Clusters |
+|---|---|
+| ![Typed relations overlay](docs/screenshots/07-graph-typed.png) | ![Semantic clusters](docs/screenshots/08-clusters.png) |
 
-### Embeddings
+### Memories
 
-On-demand UMAP projection of at most the first 500 stored rows (invalid vectors are
-omitted), next to a read-only local health inspection. The page reports whether that
-selection was truncated; opening the root page does not precompute the projection.
+The list (filters by category, tier and type, bulk delete), the timeline by day, and every tag
+with rename, merge and delete. Memories read as their key followed by their facts.
 
-![Embeddings and local health](docs/screenshots/08-embedding-health.png)
-
-### Browse and review
-
-| Memories | Timeline | Tags |
+| List | Timeline | Tags |
 |---|---|---|
 | ![Memories](docs/screenshots/02-memories.png) | ![Timeline](docs/screenshots/03-timeline.png) | ![Tags](docs/screenshots/04-tags.png) |
 
-| Duplicates | Conflicts |
-|---|---|
-| ![Duplicates](docs/screenshots/05-duplicates.png) | ![Conflicts](docs/screenshots/06-conflicts.png) |
+### Hygiene
 
-| Review | Clusters | Stale |
+Open conflicts (same subject, same claim key, different values), near-duplicate groups,
+stale candidates, and the read-only review inbox. Nothing here cleans automatically.
+
+| Conflicts | Duplicates | Review |
 |---|---|---|
-| ![Review](docs/screenshots/07-review.png) | ![Clusters](docs/screenshots/09-clusters.png) | ![Stale](docs/screenshots/10-stale.png) |
+| ![Conflicts](docs/screenshots/09-conflicts.png) | ![Duplicates](docs/screenshots/10-duplicates.png) | ![Review](docs/screenshots/11-review.png) |
+
+### Health
+
+On-request local diagnostics (embedding pipeline, FTS coverage, size, backups, last
+maintenance, per-table fragments) and the on-demand UMAP projection of at most the first 500
+stored rows (invalid vectors are omitted). Opening the page does not precompute anything.
+
+| Diagnostics | Embedding projection |
+|---|---|
+| ![Health diagnostics](docs/screenshots/12-health.png) | ![Embedding projection](docs/screenshots/15-projection.png) |
+
+### Phone and foldables
+
+Under 768px the sections move to a bottom tab bar and lists become two-line rows, so nothing
+scrolls sideways. Graph filters fold behind one button.
+
+| Overview | Graph |
+|---|---|
+| <img src="docs/screenshots/13-phone-overview.png" width="300" alt="Overview on a phone"> | <img src="docs/screenshots/14-phone-graph.png" width="300" alt="Graph on a phone"> |
 
 ### Pages
 

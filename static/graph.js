@@ -469,7 +469,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
       dir = '';
     }
     relatedItems.push({
-      id: lm.id, label: (lm.content || '').substring(0, 80),
+      id: lm.id, label: lm.content || '',
       type: relType, dir: dir,
       cat: lm.category || 'fact', simScore: null,
     });
@@ -484,7 +484,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
         '<span class="cat-badge cat-' + safeCategory(item.cat) + '" style="font-size:9px;padding:1px 6px;margin-bottom:0">' + escapeHtml(catLabels[safeCategory(item.cat)] || '?') + '</span>' +
         '<span class="' + typeClass + '">' + escapeHtml(item.type) + '</span>' +
         (item.dir ? ' <span class="typed-arrow">' + escapeHtml(item.dir) + '</span>' : '') +
-        ' ' + escapeHtml(item.label) +
+        ' ' + memoryHtml(item.label, 90) +
         '</div>';
     });
     relatedHtml += '</div>';
@@ -517,7 +517,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
   content.innerHTML =
     '<div class="cat-badge cat-' + safeCategory(category) + '">' + escapeHtml(catLabel) + '</div>' +
     statsHtml +
-    '<div class="detail-content" id="detail-text">' + escapeHtml(fullContent) + '</div>' +
+    '<div class="detail-content" id="detail-text">' + memoryHtml(fullContent, 0, true) + '</div>' +
     '<div class="detail-meta" style="margin-top:4px;">' + escapeHtml(dateStr) + '</div>' +
     entityChips +
     vecHtml +
@@ -821,7 +821,7 @@ async function doSemanticSearch() {
         '<span class="s-cat cat-' + safeCategory(r.category) + '">' + escapeHtml(cat) + '</span>' +
         (metric ? '<span class="s-meta">' + metric + '</span>' : '') +
         '<span class="s-why"><button class="why-btn" title="Why this result?" onclick="event.stopPropagation();explainResult(\'' + escapeJsString(r.id) + '\')">?</button></span>' +
-        '<div class="s-content" onclick="selectMemory(\'' + escapeJsString(r.id) + '\')">' + escapeHtml((r.content || '').substring(0, 140)) + '</div></div>';
+        '<div class="s-content" onclick="selectMemory(\'' + escapeJsString(r.id) + '\')">' + memoryHtml(r.content, 140) + '</div></div>';
     }).join('');
   } catch(e) { panel.innerHTML = '<div class="search-empty">Search failed.</div>'; }
 }
@@ -906,7 +906,7 @@ function explainResult(resultId) {
     body += '<div class="why-section"><h4>Other candidates (max ' + WHY_PANEL_MAX_ROWS + ')</h4>';
     body += others.map(r => '<div class="why-row why-other" onclick="selectMemory(\'' + escapeJsString(r.id) + '\')">' +
       '<span class="why-label">' + escapeHtml(r.category || 'fact') + '</span>' +
-      '<span class="why-value">' + escapeHtml((r.content || '').substring(0, 80)) + '</span></div>').join('');
+      '<span class="why-value">' + memoryHtml(r.content, 80) + '</span></div>').join('');
     body += '</div>';
   }
 
@@ -987,6 +987,21 @@ document.addEventListener('keydown', function(e) {
 
 // Helpers
 function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str == null ? '' : String(str); return d.innerHTML; }
+// Stored content is "Domain:Subject fact ::fact:: fact [Tier=N]". Show it the way
+// a person reads it: the key, then the facts. lines=true puts one fact per line.
+function memoryParts(content) {
+  const text = String(content == null ? '' : content).replace(/\s*\[\s*tier\s*=\s*\d\s*\]\s*$/i, '');
+  const match = text.match(/^([^\s:]+:\S+)\s+([\s\S]*)$/);
+  // Previews arrive cut by the server: drop a marker left half-written at the end.
+  const body = (match ? match[2] : text).replace(/\s*\[[^\]]*$/, '').replace(/\s*:{1,2}\s*f?a?c?t?:{0,2}\s*$/i, '');
+  return { key: match ? match[1] : '', facts: body.split(/\s*::\s*fact\s*::\s*/i).filter(Boolean) };
+}
+function memoryHtml(content, max, lines) {
+  const parts = memoryParts(content);
+  let body = parts.facts.join(lines ? '\n' : ' · ');
+  if (max && body.length > max) body = body.substring(0, max - 1) + '…';
+  return (parts.key ? '<b class="mem-key">' + escapeHtml(parts.key) + '</b>' + (lines ? '\n' : ' ') : '') + escapeHtml(body);
+}
 function escapeHtmlAttr(str) { return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escapeJsString(str) { const value = String(str == null ? '' : str); let out = ''; for (let i = 0; i < value.length; i++) out += '\\u' + value.charCodeAt(i).toString(16).padStart(4, '0'); return out; }
 function safeCategory(value) { return Object.prototype.hasOwnProperty.call(catLabels, value) ? value : 'fact'; }

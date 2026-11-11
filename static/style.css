@@ -380,6 +380,9 @@ body[data-group="hygiene"] .lens-set[data-group="hygiene"] { display: flex; }
 .card-meta { font: 11px var(--mono); color: var(--mute); }
 .more { font-size: 12px; white-space: nowrap; }
 
+/* Memory key ("Domain:Subject") in front of its facts. */
+.mem-key { font: 500 0.94em var(--mono); color: var(--acc-2); }
+
 /* ─── Overview ─── */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .kpi { background: var(--s1); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }

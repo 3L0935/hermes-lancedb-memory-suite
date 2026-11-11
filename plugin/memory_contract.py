@@ -629,12 +629,11 @@ def canonicalize_unambiguous_legacy_content(
 
 
 def contract_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
-    """Non-blocking advice returned with a successful write, most important first."""
-    issues: list[ContractIssue] = []
+    """Contract-level advice about the stored form. Audits and the review inbox use it."""
     subject = memory.subject.casefold()
     if subject == memory.domain.casefold() or subject in _GENERIC_SUBJECTS:
         suggestion = f"{memory.subject}_<component>_<failure>"
-        issues.append(ContractIssue(
+        return (ContractIssue(
             code="overly_broad_subject",
             field="subject",
             message=(
@@ -643,7 +642,17 @@ def contract_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
             ),
             received=memory.subject,
             expected="component-, bug-, or decision-specific subject",
-        ))
+        ),)
+    return ()
+
+
+def density_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
+    """Write-time advice on shape for recall. Not a format issue: audits ignore it.
+
+    Relations are stored beside the content, so a memory parsed back from its
+    content alone has none; only the writer knows, which is why this runs at write.
+    """
+    issues: list[ContractIssue] = []
     long_facts = [
         (index, len(fact)) for index, fact in enumerate(memory.facts)
         if len(fact) > SOFT_MAX_FACT_CHARS
@@ -674,6 +683,11 @@ def contract_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
             expected="at least one typed relation",
         ))
     return tuple(issues)
+
+
+def write_warnings(memory: MemoryWrite) -> tuple[ContractIssue, ...]:
+    """Everything a successful write reports back, most important first."""
+    return (*contract_warnings(memory), *density_warnings(memory))
 
 
 def memory_fingerprint(memory: MemoryWrite) -> str:

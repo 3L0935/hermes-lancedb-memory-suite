@@ -209,7 +209,7 @@ async function loadDashboard() {
     const recent = (Array.isArray(days) ? days : []).flatMap(g => g.memories || [])
       .sort((a,b) => (b.created_at || 0) - (a.created_at || 0)).slice(0, 8);
     const row = (m, meta) => '<button class="row-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' +
-      catBadge(m.category) + '<span class="txt">' + escapeHtml((m.content || '').substring(0, 160)) + '</span><span class="meta">' + escapeHtml(meta) + '</span></button>';
+      catBadge(m.category) + '<span class="txt">' + memoryHtml(m.content, 160) + '</span><span class="meta">' + escapeHtml(meta) + '</span></button>';
     document.getElementById('dash-recent').innerHTML = recent.length
       ? recent.map(m => row(m, age(m.created_at))).join('')
       : '<div class="empty-state">Nothing written yet</div>';
@@ -280,7 +280,7 @@ async function loadMemories() {
     tbody.innerHTML = mems.map(m =>
       '<tr onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')" style="cursor:pointer;">' +
         '<td class="cb-col" onclick="event.stopPropagation()"><input type="checkbox" class="mem-cb" value="' + escapeHtmlAttr(m.id) + '" onchange="updateBulkBar()"></td>' +
-        '<td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml((m.content || '').substring(0,120)) + '</td>' +
+        '<td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + memoryHtml(m.content, 120) + '</td>' +
         '<td>' + catBadge(m.category) + '</td>' +
         '<td>' + badgeForTier(m.tier) + '</td>' +
         '<td>' + (m.tags || []).slice(0,3).map(t => '<span class="tag-badge" style="font-size:9px;padding:1px 5px;">' + escapeHtml(t) + '</span>').join('') + '</td>' +
@@ -326,7 +326,7 @@ function showMemoryDetail(id) {
       '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">' +
         '<div class="modal">' +
           '<div class="modal-title">' + catBadge(m.category) + ' <span style="color:var(--muted);font-size:11px;">' + escapeHtml(m.type || '') + '</span></div>' +
-          '<div style="background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:100px;max-height:400px;overflow-y:auto;">' + escapeHtml(m.content || '') + '</div>' +
+          '<div style="background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;min-height:100px;max-height:400px;overflow-y:auto;">' + memoryHtml(m.content || '', 0, true) + '</div>' +
           '<div style="margin-top:10px;color:var(--muted);font-size:11px;">Quality: ' + ((m.quality||0)*100).toFixed(0) + '% · Accessed: ' + (m.access_count||0) + 'x · Created: ' + new Date((m.created_at||0)*1000).toLocaleString() + '</div>' +
           '<div style="margin-top:8px;">' + (m.entities||[]).map(e => '<span class="tag-badge">' + escapeHtml(e) + '</span>').join('') + '</div>' +
           '<div style="margin-top:8px;">' + (m.tags||[]).map(t => '<span class="tag-badge">' + escapeHtml(t) + '</span>').join('') + '</div>' +
@@ -392,7 +392,7 @@ async function loadTimeline() {
       data.map(g =>
         '<div class="timeline-group"><div class="timeline-dot"></div><div class="timeline-date">' + escapeHtml(g.date) + ' <span style="font-weight:400;color:var(--muted);font-size:11px;">(' + escapeHtml(g.count) + ')</span></div>' +
         (g.memories||[]).slice(0,10).map(m =>
-          '<div class="timeline-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' + catBadge(m.category) + ' ' + escapeHtml((m.content||'').substring(0,120)) + ' <span style="color:var(--muted);font-size:10px;">' + age(m.created_at) + '</span></div>'
+          '<div class="timeline-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' + catBadge(m.category) + ' ' + memoryHtml(m.content, 120) + ' <span style="color:var(--muted);font-size:10px;">' + age(m.created_at) + '</span></div>'
         ).join('') +
         (g.count > 10 ? '<div style="color:var(--muted);font-size:10px;padding:4px 12px;">+' + (g.count-10) + ' more</div>' : '') +
         '</div>'
@@ -421,7 +421,7 @@ async function loadDuplicates() {
           '<div class="dup-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' +
             '<span style="color:' + (mi===0?'var(--accent)':'var(--muted)') + ';font-size:10px;min-width:20px;">#' + (mi+1) + '</span>' +
             catBadge(m.category) +
-            '<span style="flex:1;">' + escapeHtml((m.content||'').substring(0,150)) + '</span>' +
+            '<span style="flex:1;">' + memoryHtml(m.content, 150) + '</span>' +
             '<span style="color:var(--muted);font-size:10px;">' + ((m.quality||0)*100).toFixed(0) + '%</span>' +
             '<button class="btn-neon btn-delete" style="padding:2px 8px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();deleteSingleMemory(\'' + escapeJsString(m.id) + '\')">✕</button>' +
           '</div>'
@@ -453,9 +453,9 @@ async function loadConflicts() {
         '<span class="conflict-subject">' + escapeHtml(c.subject || '') + '</span>' +
         '<span class="conflict-status">' + escapeHtml(c.status || 'open') + '</span></div>' +
         '<div class="conflict-pair">' +
-          '<button class="conflict-memory" onclick="showMemoryDetail(\'' + escapeJsString(c.memory_a_id) + '\')"><b>' + escapeHtml(c.value_a || '') + '</b><span>' + escapeHtml((c.memory_a_content || '').substring(0, 180)) + '</span></button>' +
+          '<button class="conflict-memory" onclick="showMemoryDetail(\'' + escapeJsString(c.memory_a_id) + '\')"><b>' + escapeHtml(c.value_a || '') + '</b><span>' + memoryHtml(c.memory_a_content, 180) + '</span></button>' +
           '<span class="conflict-vs">vs</span>' +
-          '<button class="conflict-memory" onclick="showMemoryDetail(\'' + escapeJsString(c.memory_b_id) + '\')"><b>' + escapeHtml(c.value_b || '') + '</b><span>' + escapeHtml((c.memory_b_content || '').substring(0, 180)) + '</span></button>' +
+          '<button class="conflict-memory" onclick="showMemoryDetail(\'' + escapeJsString(c.memory_b_id) + '\')"><b>' + escapeHtml(c.value_b || '') + '</b><span>' + memoryHtml(c.memory_b_content, 180) + '</span></button>' +
         '</div>' +
       '</div>'
     ).join('');
@@ -809,7 +809,7 @@ async function loadClusters() {
       return '<div class="dup-group">' +
         '<div class="dup-group-header"><span style="font-size:13px;font-weight:600;color:' + clColors[i%clColors.length] + '">' + escapeHtml(name) + ' <span style="font-weight:400;color:var(--muted);font-size:11px;">(' + c.size + ')</span></span></div>' +
         (c.members||[]).slice(0,15).map(m =>
-          '<div class="dup-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' + catBadge(m.category) + ' ' + escapeHtml((m.content||'').substring(0,130)) + '</div>'
+          '<div class="dup-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')">' + catBadge(m.category) + ' ' + memoryHtml(m.content, 130) + '</div>'
         ).join('') +
         (c.size > 15 ? '<div style="color:var(--muted);font-size:10px;padding:4px 8px;">+' + (c.size-15) + ' more</div>' : '') +
       '</div>';
@@ -835,7 +835,7 @@ async function loadStale() {
     el.innerHTML = stale.map(m =>
       '<div class="dup-item" onclick="showMemoryDetail(\'' + escapeJsString(m.id) + '\')" style="display:flex;align-items:center;gap:8px;">' +
         catBadge(m.category) +
-        '<span style="flex:1;">' + escapeHtml((m.content||'').substring(0,140)) + '</span>' +
+        '<span style="flex:1;">' + memoryHtml(m.content, 140) + '</span>' +
         '<span style="color:var(--muted);font-size:10px;">' + age(m.created_at) + '</span>' +
         '<span style="font-size:10px;color:var(--red);">' + ((m.quality||0)*100).toFixed(0) + '%</span>' +
       '</div>'
