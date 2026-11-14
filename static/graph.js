@@ -13,6 +13,30 @@ let graphIntersectionVisible = false;
 const MAX_EDITOR_FACTS = 12;
 const MAX_EDITOR_RELATIONS = 20;
 const GRAPH_LAYOUT_RANDOM_SEED = 20260913;
+// Canvas shadowBlur is the most expensive thing vis-network draws, and a freshly
+// rebuilt memory is almost entirely "< 1h old": every node glowed, every frame.
+// Only the freshest memories keep their halo; the border still carries freshness.
+const GRAPH_GLOW_BUDGET = 60;
+// Ticks of the off-screen layout pass. The layout is computed once, then frozen.
+const GRAPH_STABILIZATION_ITERATIONS = 400;
+let glowingIds = new Set();
+let nodeById = new Map();
+// True once the layout has settled. Physics then stays off: a settled graph costs
+// nothing at rest instead of re-simulating and redrawing the canvas forever.
+let graphLayoutSettled = false;
+// Dragging a memory pulls its neighbourhood along: direct links follow closely,
+// second-degree links follow loosely, everything else stays put. Done by moving
+// positions directly, not by restarting the simulation, which made the whole
+// graph drift whenever one node was moved.
+const DRAG_FOLLOW_STRENGTH = [1, 0.75, 0.35];
+const DRAG_FOLLOW_MAX = 200;
+let dragFollowers = null;
+// A new set of links (cluster mode, threshold, typed overlay) is a new layout: it
+// is animated live so the memories visibly sort themselves, then frozen once it
+// comes to rest or after this long.
+const GRAPH_LIVE_LAYOUT_MS = 30000;
+let liveLayoutTimer = null;
+let lastEdgeSignature = '';
 
 // Category colours: the Phosphor UV palette of tokens.css (--cat-*). The canvas
 // cannot read CSS variables, so the values are repeated here. bg is the node core
@@ -75,7 +99,7 @@ function restingNodeStyle(n) {
     font: { color: c.label, size: isHub ? 13 : 11, face: 'Geist Mono, ui-monospace, monospace', strokeWidth: 0 },
     size: sz, shape: isHub ? 'box' : 'dot',
     borderWidth: ageBW, borderWidthSelected: 3,
-    shadow: { enabled: true, color: ageGlow, size: ageShadow, x: 0, y: 0 },
+    shadow: { enabled: ageShadow > 0 && (isHub || glowingIds.has(n.id)), color: ageGlow, size: ageShadow, x: 0, y: 0 },
     opacity: 1.0,
     hidden: false,
     _category: n.category, _tier: n.tier || 'none',
@@ -155,8 +179,15 @@ function renderGraph() {
   const fleg = document.getElementById('fresh-legend');
   if (fleg) fleg.style.display = 'flex';
 
-  // Build vis.js nodes with neon glow
-  const visNodes = (allData.nodes || []).map(restingNodeStyle);
+  // Build vis.js nodes with neon glow, capped to the freshest memories.
+  const memoryNodes = allData.nodes || [];
+  nodeById = new Map(memoryNodes.map(n => [n.id, n]));
+  glowingIds = new Set(memoryNodes
+    .filter(n => n.node_type !== 'hub' && n.created_at)
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, GRAPH_GLOW_BUDGET)
+    .map(n => n.id));
+  const visNodes = memoryNodes.map(restingNodeStyle);
 
   const visEdges = (allData.edges || []).map(e => {
     if (e.kind === 'declared') {
@@ -188,17 +219,20 @@ function renderGraph() {
         smooth: {type: 'curvedCW', roundness: 0.12},
       };
     }
+    // Semantic links are drawn plain: no score label (a thousand of them on screen
+    // is noise, and the sidebar lists the scores), no dash pattern, no curve. The
+    // score stays readable on hover.
     return {
-      from: e.from, to: e.to, label: e.label || '', kind: 'semantic',
+      from: e.from, to: e.to, title: e.label ? 'similarity ' + e.label : '', kind: 'semantic',
       color: {
         color: '#5A5470',
         highlight: '#A98BFF',
         hover: '#C9B6FF',
-        opacity: 0.5,
+        opacity: 0.4,
       },
       width: 0.85,
-      dashes: [3,6], font: {color:'#8D88A3', size:9, strokeWidth:0},
-      arrows:{to:{enabled:false}}, smooth:{type:'curvedCW', roundness:0.15},
+      dashes: false,
+      arrows:{to:{enabled:false}}, smooth: false,
     };
   });
 
@@ -214,7 +248,16 @@ function renderGraph() {
     if (added.length) nodes.add(added);
     if (changed.length) nodes.update(changed);
     edges.clear(); edges.add(visEdges);
+    const signature = graphEdgeSignature(visEdges);
+    if (signature !== lastEdgeSignature) {
+      lastEdgeSignature = signature;
+      startLiveLayout();
+    } else if (added.length) {
+      // Same links, a few new memories: place them, keep everyone else where they are.
+      settleGraphLayout(Math.min(GRAPH_STABILIZATION_ITERATIONS, 150));
+    }
   } else {
+    lastEdgeSignature = graphEdgeSignature(visEdges);
     nodes.clear(); edges.clear();
     nodes.add(visNodes); edges.add(visEdges);
 
@@ -230,10 +273,37 @@ function renderGraph() {
           springConstant: 0.004,
           damping: 0.98,
         },
-        stabilization: { iterations: 150, fit: true },
+        minVelocity: 0.75,
+        stabilization: { iterations: GRAPH_STABILIZATION_ITERATIONS, updateInterval: 50, fit: true },
       },
-      interaction: { hover: true, zoomView: true, dragView: true },
-      layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: true },
+      // Edges are hidden while the camera moves: panning and zooming stay fluid
+      // whatever the number of links.
+      interaction: { hover: true, zoomView: true, dragView: true, hideEdgesOnDrag: true, hideEdgesOnZoom: true, tooltipDelay: 200 },
+      // improvedLayout runs Kamada-Kawai on a clustered copy of the graph before the
+      // first frame; with hundreds of memories that alone took about a second.
+      layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: false },
+    });
+    graphLayoutSettled = false;
+
+    // The layout is computed off-screen, then frozen.
+    network.on('stabilizationIterationsDone', freezeGraphLayout);
+    network.on('stabilized', freezeGraphLayout);
+    network.on('dragStart', params => {
+      dragFollowers = params.nodes.length ? collectDragFollowers(params.nodes[0]) : null;
+    });
+    network.on('dragging', () => {
+      if (!dragFollowers) return;
+      const at = network.getPosition(dragFollowers.id);
+      const dx = at.x - dragFollowers.origin.x, dy = at.y - dragFollowers.origin.y;
+      for (const f of dragFollowers.nodes) network.moveNode(f.id, f.x + dx * f.k, f.y + dy * f.k);
+    });
+    network.on('dragEnd', () => {
+      if (!dragFollowers) return;
+      // Persist the moved positions so a later data reload keeps them.
+      const ids = [dragFollowers.id, ...dragFollowers.nodes.map(f => f.id)];
+      const pos = network.getPositions(ids);
+      nodes.update(ids.map(id => ({ id, x: pos[id].x, y: pos[id].y })));
+      dragFollowers = null;
     });
 
     network.on('click', function(params) {
@@ -259,11 +329,67 @@ function selectMemory(nodeId) {
   focusNode(nodeId);
 }
 
+// Breadth-first over the drawn edges, two levels deep, with the follow strength of
+// each level. Bounded so dragging a hub with hundreds of children stays instant.
+function collectDragFollowers(id) {
+  const start = network.getPositions();
+  const seen = new Set([id]);
+  const followers = [];
+  let frontier = [id];
+  for (let depth = 1; depth < DRAG_FOLLOW_STRENGTH.length && frontier.length; depth++) {
+    const next = [];
+    for (const from of frontier) {
+      for (const other of network.getConnectedNodes(from)) {
+        if (seen.has(other) || !start[other] || followers.length >= DRAG_FOLLOW_MAX) continue;
+        seen.add(other);
+        next.push(other);
+        followers.push({ id: other, x: start[other].x, y: start[other].y, k: DRAG_FOLLOW_STRENGTH[depth] });
+      }
+    }
+    frontier = next;
+  }
+  return { id, origin: start[id], nodes: followers };
+}
+
+function graphEdgeSignature(visEdges) {
+  return visEdges.map(e => e.from + '>' + e.to).sort().join('|');
+}
+
+function startLiveLayout() {
+  if (!network) return;
+  graphLayoutSettled = false;
+  clearTimeout(liveLayoutTimer);
+  liveLayoutTimer = setTimeout(freezeGraphLayout, GRAPH_LIVE_LAYOUT_MS);
+  // Started for real by setGraphPhysicsActive() at the end of renderGraph, which
+  // also keeps it paused while the graph is off screen.
+}
+
+function freezeGraphLayout() {
+  if (!network) return;
+  clearTimeout(liveLayoutTimer);
+  graphLayoutSettled = true;
+  network.stopSimulation();
+  network.setOptions({physics: {enabled: false}});
+}
+
+function settleGraphLayout(iterations) {
+  if (!network) return;
+  graphLayoutSettled = false;
+  network.setOptions({physics: {enabled: true}});
+  network.stabilize(iterations);
+}
+
+// Visibility only pauses or resumes a layout that has not settled yet. A settled
+// graph never restarts its simulation on its own.
 function setGraphPhysicsActive(active) {
   if (!network) return;
-  network.setOptions({physics: {enabled: Boolean(active)}});
-  if (active) network.startSimulation();
-  else network.stopSimulation();
+  if (active && !graphLayoutSettled) {
+    network.setOptions({physics: {enabled: true}});
+    network.startSimulation();
+  } else {
+    network.stopSimulation();
+    if (graphLayoutSettled) network.setOptions({physics: {enabled: false}});
+  }
 }
 
 function pauseGraphPhysics() { setGraphPhysicsActive(false); }
@@ -305,7 +431,7 @@ function highlightTypedRelations(nodeId) {
   // on a well-connected memory redraw the canvas 25 times.
   const updates = [];
   glowIds.forEach(id => {
-    const node = allData.nodes.find(n => n.id === id);
+    const node = nodeById.get(id);
     if (!node) return;
     updates.push({
       id: id,
@@ -329,7 +455,7 @@ function resetTypedHighlights() {
   // call redraws the whole canvas.
   const restored = [];
   highlightedTypedEdges.forEach(id => {
-    const n = allData.nodes.find(x => x.id === id);
+    const n = nodeById.get(id);
     if (n) restored.push(restingNodeStyle(n));
   });
   if (restored.length) nodes.update(restored);
@@ -442,7 +568,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
     const otherId = e.from === nodeId ? e.to : e.from;
     if (seenRelated.has(otherId)) return;
     seenRelated.add(otherId);
-    const otherNode = allData.nodes.find(x => x.id === otherId);
+    const otherNode = nodeById.get(otherId);
     const otherLabel = otherNode ? (otherNode.label || otherNode.title || otherId).substring(0, 50) : otherId;
     const relType = e.relation_type || e.type || 'linked';
     const dir = e.from === nodeId ? '→' : '←';
@@ -501,7 +627,7 @@ function renderSidebarContent(content, nodeId, fullContent, category, catLabel, 
     });
     vectorEdges.slice(0, 10).forEach(e => {
       const otherId = e.from === nodeId ? e.to : e.from;
-      const otherNode = allData.nodes.find(x => x.id === otherId);
+      const otherNode = nodeById.get(otherId);
       const otherLabel = otherNode ? (otherNode.label || otherNode.title || otherId).substring(0, 50) : otherId;
       const simScore = parseFloat(e.label);
       const simColor = simScore > 0.9 ? '#5BD69B' : simScore > 0.8 ? '#C9B6FF' : '#8D88A3';
@@ -548,7 +674,7 @@ function renderHubSidebar(content, hubId, hubNode) {
   children.forEach(cid => {
     if (seen.has(cid)) return;
     seen.add(cid);
-    const cn = allData.nodes.find(x => x.id === cid);
+    const cn = nodeById.get(cid);
     if (cn && cn.node_type !== 'hub') childNodes.push(cn);
   });
   childNodes.sort((a,b) => ((a.category || '').localeCompare(b.category || '') || (a.label || '').localeCompare(b.label || '')));
@@ -733,20 +859,17 @@ function applyFilters() {
     if (tierOk && searchOk && catOk) matches.add(n.id);
   });
 
-  // One batched update for the whole corpus. This called nodes.update() once per node
-  // (471 of them), and each call redraws the entire canvas: the click felt frozen.
+  // One batched update, and only for the nodes whose look actually changes: a
+  // keystroke in the search box used to restyle (and redraw) the whole corpus.
   const updates = [];
-  nodes.forEach(node => {
+  nodes.get({fields: ['id', 'opacity', 'borderWidth']}).forEach(node => {
     const isMatch = matches.has(node.id);
-    let opacity = 1.0;
-    if (active && !isMatch) opacity = 0.18;
-    updates.push({
-      id: node.id,
-      hidden: false,
-      opacity,
-      // Highlighted nodes get a white border so a search reads at a glance.
-      borderWidth: active && isMatch ? 2.5 : 1,
-    });
+    const opacity = active && !isMatch ? 0.18 : 1.0;
+    // Highlighted nodes get a thicker border so a search reads at a glance.
+    const borderWidth = active && isMatch ? 2.5 : 1;
+    if (node.opacity !== opacity || node.borderWidth !== borderWidth) {
+      updates.push({ id: node.id, hidden: false, opacity, borderWidth });
+    }
   });
   if (updates.length) nodes.update(updates);
   updateBudgetLabel(matches.size, active);
@@ -962,7 +1085,12 @@ async function copyMemoryJSON(nodeId) {
 // Init
 // ═══════════════════════════════════════════════
 
-document.getElementById('search').addEventListener('input', applyFilters);
+// Debounced: filtering on every keystroke restyled the graph mid-word.
+let filterDebounceTimer = null;
+document.getElementById('search').addEventListener('input', () => {
+  clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = setTimeout(applyFilters, 120);
+});
 document.getElementById('search').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') { e.preventDefault(); closeSearchPanel(); doSemanticSearch(); }
 });

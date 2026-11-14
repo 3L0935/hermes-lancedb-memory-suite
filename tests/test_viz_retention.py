@@ -915,12 +915,44 @@ class VizRetentionTests(unittest.TestCase):
 
         self.assertIn("const GRAPH_LAYOUT_RANDOM_SEED = 20260913;", graph)
         self.assertIn(
-            "layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: true }",
+            "layout: { randomSeed: GRAPH_LAYOUT_RANDOM_SEED, improvedLayout: false }",
             graph,
         )
-        self.assertIn("stabilization: { iterations: 150, fit: true }", graph)
+        self.assertIn("stabilization: { iterations: GRAPH_STABILIZATION_ITERATIONS", graph)
         self.assertIn("dragView: true", graph)
         self.assertIn("network.startSimulation()", graph)
+
+    def test_graph_freezes_once_settled_and_keeps_frames_cheap(self):
+        """A settled graph must cost nothing at rest: the simulation used to run
+        forever and redraw every frame (about 15-25 fps once zoomed out)."""
+        graph = (ROOT / "static" / "graph.js").read_text()
+
+        self.assertIn("network.on('stabilizationIterationsDone', freezeGraphLayout)", graph)
+        freeze = re.search(r"function freezeGraphLayout\(\)[\s\S]*?\n}", graph).group(0)
+        self.assertIn("physics: {enabled: false}", freeze)
+        physics = re.search(r"function setGraphPhysicsActive\(active\)[\s\S]*?\n}", graph).group(0)
+        self.assertIn("!graphLayoutSettled", physics)
+        # Expensive canvas work stays bounded.
+        self.assertIn("GRAPH_GLOW_BUDGET", graph)
+        self.assertIn("glowingIds.has(n.id)", graph)
+        self.assertIn("hideEdgesOnDrag: true", graph)
+        self.assertNotIn("dashes: [3,6]", graph)
+
+    def test_graph_drag_pulls_neighbours_and_new_links_relayout_live(self):
+        graph = (ROOT / "static" / "graph.js").read_text()
+
+        # Dragging moves the neighbourhood directly, without restarting a global
+        # simulation that made the whole graph drift.
+        self.assertIn("function collectDragFollowers(id)", graph)
+        self.assertIn("network.on('dragging'", graph)
+        self.assertIn("network.moveNode(", graph)
+        drag_start = re.search(r"network\.on\('dragStart'[\s\S]*?\n    }\);", graph).group(0)
+        self.assertNotIn("startSimulation", drag_start)
+        # A new link set (cluster mode, threshold) animates its sort, then freezes.
+        self.assertIn("signature !== lastEdgeSignature", graph)
+        live = re.search(r"function startLiveLayout\(\)[\s\S]*?\n}", graph).group(0)
+        self.assertIn("graphLayoutSettled = false", live)
+        self.assertIn("GRAPH_LIVE_LAYOUT_MS", live)
 
     def test_health_diagnostics_separate_useful_history_fts_and_ollama_error(self):
         with tempfile.TemporaryDirectory() as tmp:
